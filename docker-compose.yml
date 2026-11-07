@@ -1,0 +1,20 @@
+services:
+  bot:
+    build: .
+    image: helping-bot:latest
+    container_name: helping-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Внутри контейнера слушаем все интерфейсы; наружу порт опубликован только на 127.0.0.1.
+      WEBHOOK_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

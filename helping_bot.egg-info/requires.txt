@@ -1,0 +1,13 @@
+aiogram<4,>=3.15
+aiohttp>=3.9
+aiosqlite>=0.20
+python-frontmatter>=1.1
+PyYAML>=6.0
+pydantic>=2.7
+pydantic-settings>=2.3
+tzdata>=2024.1
+
+[dev]
+pytest>=8
+pytest-asyncio>=0.24
+ruff>=0.6

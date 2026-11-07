@@ -28,12 +28,12 @@
 - [x] Тест на проверку подписи.
 
 ## Этап 4. Деплой на `vibee-root`
-- [ ] Deploy key на сервере, клон в `/opt/helping-bot`, `.env` (chmod 600), `config/projects.yml`.
-- [ ] `scripts/deploy.sh`, запуск контейнера, healthcheck.
-- [ ] Location в Nginx по `docs/SERVER.md` с проверками. Cargo должен по-прежнему отдавать 200.
-- [ ] Webhook в контент-репозитории.
-- [ ] Бэкап SQLite (cron, ротация 14 дней).
-- [ ] Сквозная проверка по критериям `spec.md` §10 и отчёт владельцу.
+- [x] Клон в `/opt/helping-bot` (репозиторий бота публичный — по HTTPS, read-only), `.env` (chmod 600), `config/projects.yml`. Deploy key для контент-репозитория создан на сервере (`data/ssh/esoteric.pub`) — **ждёт добавления владельцем в GitHub**.
+- [x] `scripts/deploy.sh`, запуск контейнера, healthcheck.
+- [x] Location в Nginx по `docs/SERVER.md` с проверками. Cargo должен по-прежнему отдавать 200.
+- [ ] Webhook в контент-репозитории — **ждёт владельца** (URL и секрет — в `docs/SERVER.md` и серверном `.env`).
+- [x] Бэкап SQLite (cron, ротация 14 дней).
+- [ ] Сквозная проверка по критериям `spec.md` §10 и отчёт владельцу — частично: серверная часть проверена, Telegram-часть ждёт токена и ID.
 
 ## Нужно от владельца
 - [ ] Токен бота от @BotFather.

@@ -1,0 +1,15 @@
+# Копия на сервере: /opt/helping-bot/config/projects.yml
+# Новый репозиторий = новый блок в repos. После правки: docker compose restart bot (или /reload в боте).
+
+accounts:
+  - id: tiktok-esoteric
+    platform: tiktok
+    title: "🔮 TikTok · Эзотерика"
+
+repos:
+  - id: esoteric
+    project: "Эзотерика"
+    github: torrexx52/ЗАМЕНИТЬ-content-repo   # owner/name
+    branch: main
+    posts_path: posts
+    webhook_secret_env: GH_SECRET_ESOTERIC  # имя переменной в .env

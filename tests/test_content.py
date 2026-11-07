@@ -110,3 +110,22 @@ def test_scan_missing_posts_dir(tmp_path):
     posts, errors = scan_posts(tmp_path, "posts", ACCOUNTS)
     assert posts == []
     assert "не найдена" in errors[0][1]
+
+
+def test_colon_in_title_without_quotes(tmp_path):
+    folder = write_post(tmp_path / "p", title="Метод 3-6-9: как писать желания 11:11")
+    post = parse_post(folder, "posts/p", ACCOUNTS)
+    assert post.title == "Метод 3-6-9: как писать желания 11:11"
+    assert post.date == dt.date(2026, 11, 12)
+    assert post.caption == "Подпись #тег"
+
+
+def test_quoted_title_and_broken_frontmatter(tmp_path):
+    folder = write_post(tmp_path / "p", title='"Выбери карту: декабрь"')
+    assert parse_post(folder, "posts/p", ACCOUNTS).title == "Выбери карту: декабрь"
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "post.md").write_text("---\ntitle: [unclosed\n- list item\n---\n## Подпись\nx\n", encoding="utf-8")
+    (bad / "1.jpg").write_bytes(b"x")
+    with pytest.raises(PostError, match="ошибка во frontmatter"):
+        parse_post(bad, "posts/bad", ACCOUNTS)

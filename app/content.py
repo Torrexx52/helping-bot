@@ -78,6 +78,29 @@ def split_sections(body: str) -> list[Section]:
     return sections
 
 
+def _loose_frontmatter(text: str) -> tuple[dict[str, str], str] | None:
+    """Запасной разбор frontmatter без YAML: только строки «ключ: значение»."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    try:
+        end = next(i for i, ln in enumerate(lines[1:], start=1) if ln.strip() == "---")
+    except StopIteration:
+        return None
+    meta: dict[str, str] = {}
+    for ln in lines[1:end]:
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        key, sep, value = ln.partition(":")
+        if not sep or not re.fullmatch(r"[A-Za-z_][\w-]*", key.strip()):
+            return None
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        meta[key.strip()] = value
+    return meta, "\n".join(lines[end + 1 :])
+
+
 def _parse_date(value: object) -> dt.date | None:
     if value is None or value == "":
         return None
@@ -105,13 +128,21 @@ def parse_post(
         raise PostError("нет post.md")
     raw = md.read_bytes()
     try:
-        doc = frontmatter.loads(raw.decode("utf-8-sig"))
+        text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as e:
         raise PostError("post.md не в кодировке UTF-8") from e
+    try:
+        doc = frontmatter.loads(text)
+        meta, content = doc.metadata, doc.content
     except Exception as e:  # noqa: BLE001 — yaml и прочие ошибки разбора frontmatter
-        raise PostError(f"ошибка во frontmatter: {e}") from e
-
-    meta = doc.metadata
+        # Частая ошибка: двоеточие в title без кавычек («Метод 3-6-9: как…»).
+        # Тогда читаем простые строки «ключ: значение» по первому ': '.
+        loose = _loose_frontmatter(text)
+        if loose is None:
+            raise PostError(f"ошибка во frontmatter: {e}") from e
+        meta, content = loose
+    if not isinstance(meta, dict):
+        raise PostError("frontmatter должен состоять из строк «ключ: значение»")
     if not meta:
         raise PostError("нет frontmatter (блок --- title/date/account --- в начале post.md)")
     title = str(meta.get("title") or "").strip()
@@ -124,7 +155,7 @@ def parse_post(
         raise PostError(f"неизвестный аккаунт {account!r}")
     date = _parse_date(meta.get("date"))
 
-    sections = split_sections(doc.content)
+    sections = split_sections(content)
     caption_sec = next((s for s in sections if s.title.strip().lower() == CAPTION_SECTION), None)
     if caption_sec is None:
         raise PostError("нет раздела «## Подпись»")

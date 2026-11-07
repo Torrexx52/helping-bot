@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message, TelegramObject, User
 
 log = logging.getLogger(__name__)
@@ -41,8 +42,11 @@ class AccessMiddleware(BaseMiddleware):
         # Отвечаем чужому один раз за запуск, чтобы не тратить лимиты на спам.
         if uid is not None and uid not in self._answered:
             self._answered.add(uid)
-            if isinstance(event, Message) and event.chat.type == "private":
-                await event.answer(PRIVATE_TEXT)
-            elif isinstance(event, CallbackQuery):
-                await event.answer(PRIVATE_TEXT, show_alert=False)
+            try:
+                if isinstance(event, Message) and event.chat.type == "private":
+                    await event.answer(PRIVATE_TEXT)
+                elif isinstance(event, CallbackQuery):
+                    await event.answer(PRIVATE_TEXT, show_alert=False)
+            except TelegramAPIError as e:  # чужой заблокировал бота и т. п. — не важно
+                log.info("Не удалось ответить user_id=%s: %s", uid, e)
         return None

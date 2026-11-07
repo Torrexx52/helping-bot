@@ -100,3 +100,17 @@ def test_plan_media_albums_docs_and_limits():
     assert [d.name for d in too_big] == ["huge.mp4"]
     assert classify("v.mp4", 40 * mb) == "video"
     assert classify("p.jpg", 10 * mb) == "photo"
+
+
+def test_info_text_hides_slides_section():
+    sections = [
+        Section("О чём пост", "идея"),
+        Section("Слайды", "1. Хук\n2. Карта 1 — длинный текст"),
+        Section("Слайды / сценарий", "ещё текст"),
+        Section("Звук", "оригинальный"),
+    ]
+    text = info_text("T", dt.date(2026, 11, 10), sections, ACC)
+    assert "Слайды" not in text
+    assert "Хук" not in text
+    assert "<b>О чём пост</b>\nидея" in text
+    assert "<b>Звук</b>\nоригинальный" in text

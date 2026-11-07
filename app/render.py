@@ -68,10 +68,20 @@ def split_text(text: str, limit: int = TG_LIMIT) -> list[str]:
     return parts
 
 
+# Разделы post.md, которые не показываются в карточке: текст слайдов уже есть на самих картинках.
+HIDDEN_SECTION_PREFIXES = ("слайды",)
+
+
+def is_hidden_section(title: str) -> bool:
+    return title.strip().lower().startswith(HIDDEN_SECTION_PREFIXES)
+
+
 def info_text(title: str, date: dt.date | None, sections: list[Section], account: Account) -> str:
     lines = [f"<b>{escape(title)}</b>", f"📅 {date.strftime('%d.%m.%Y') if date else 'без даты'}"]
     lines.append(f"👤 {escape(account.title)}")
     for s in sections:
+        if is_hidden_section(s.title):
+            continue
         lines.append("")
         lines.append(f"<b>{escape(s.title)}</b>")
         if s.body:

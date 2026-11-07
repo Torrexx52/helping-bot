@@ -28,15 +28,15 @@
 - [x] Тест на проверку подписи.
 
 ## Этап 4. Деплой на `vibee-root`
-- [x] Клон в `/opt/helping-bot` (репозиторий бота публичный — по HTTPS, read-only), `.env` (chmod 600), `config/projects.yml`. Deploy key для контент-репозитория создан на сервере (`data/ssh/esoteric.pub`) — **ждёт добавления владельцем в GitHub**.
+- [x] Клон в `/opt/helping-bot` (репозиторий бота публичный — по HTTPS, read-only), `.env` (chmod 600), `config/projects.yml`. Read-only deploy key для контент-репозитория: `data/ssh/esoteric`.
 - [x] `scripts/deploy.sh`, запуск контейнера, healthcheck.
 - [x] Location в Nginx по `docs/SERVER.md` с проверками. Cargo должен по-прежнему отдавать 200.
-- [ ] Webhook в контент-репозитории — **ждёт владельца** (URL и секрет — в `docs/SERVER.md` и серверном `.env`).
+- [x] Webhook в контент-репозитории (push → очередь за ~4 с).
 - [x] Бэкап SQLite (cron, ротация 14 дней).
-- [ ] Сквозная проверка по критериям `spec.md` §10 и отчёт владельцу — частично: серверная часть проверена, Telegram-часть ждёт токена и ID.
+- [x] Сквозная проверка по критериям `spec.md` §10 и отчёт владельцу.
 
 ## Нужно от владельца
-- [ ] Токен бота от @BotFather.
-- [ ] Свой Telegram ID (узнать можно у @userinfobot).
-- [ ] Адрес контент-репозитория проекта «Эзотерика» и путь к папке с постами.
-- [ ] Fine-grained GitHub PAT: Contents = Read-only для контент-репозиториев. Если агент сам создаёт webhook, нужно ещё Webhooks = Read and write.
+- [x] Токен бота от @BotFather.
+- [x] Свой Telegram ID (узнать можно у @userinfobot).
+- [x] Адрес контент-репозитория проекта «Эзотерика» и путь к папке с постами.
+- [x] ~~Fine-grained GitHub PAT~~ не понадобился (deploy key). Fine-grained GitHub PAT: Contents = Read-only для контент-репозиториев. Если агент сам создаёт webhook, нужно ещё Webhooks = Read and write.

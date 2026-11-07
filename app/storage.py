@@ -64,6 +64,10 @@ MIGRATIONS: list[str] = [
         last_error TEXT
     );
     """,
+    # 2 — видео раньше отправлялись без width/height; сбрасываем их file_id, чтобы перезалить с размерами
+    """
+    DELETE FROM media_cache WHERE kind = 'video';
+    """,
 ]
 
 

@@ -13,6 +13,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, InputMediaPhoto, InputMediaVideo, Message
 
 from app.content import media_kind
+from app.mp4info import VideoInfo, read_video_info
 from app.storage import Storage
 
 log = logging.getLogger(__name__)
@@ -32,6 +33,15 @@ class MediaFile:
     kind: str  # photo | video | document
     sha256: str = ""
     file_id: str | None = None
+    info: VideoInfo | None = None  # только для видео
+
+    def video_kwargs(self) -> dict[str, int]:
+        if self.info is None:
+            return {}
+        kw = {"width": self.info.width, "height": self.info.height}
+        if self.info.duration:
+            kw["duration"] = self.info.duration
+        return kw
 
 
 def _sha256(path: Path) -> str:
@@ -82,6 +92,8 @@ class MediaSender:
             p = base / name
             size = p.stat().st_size
             f = MediaFile(name, p, f"{post_path}/{name}", size, classify(name, size))
+            if f.kind == "video":
+                f.info = await asyncio.to_thread(read_video_info, p)
             if size <= MAX_FILE:
                 f.sha256 = await asyncio.to_thread(_sha256, p)
                 f.file_id = await self.storage.get_file_id(repo_id, f.rel, f.sha256)
@@ -97,7 +109,7 @@ class MediaSender:
             return await self.bot.send_photo(chat_id, media, request_timeout=UPLOAD_TIMEOUT)
         if f.kind == "video":
             return await self.bot.send_video(
-                chat_id, media, supports_streaming=True, request_timeout=UPLOAD_TIMEOUT
+                chat_id, media, supports_streaming=True, request_timeout=UPLOAD_TIMEOUT, **f.video_kwargs()
             )
         return await self.bot.send_document(chat_id, media, request_timeout=UPLOAD_TIMEOUT)
 
@@ -107,7 +119,7 @@ class MediaSender:
         items = [
             InputMediaPhoto(media=self._input(f, use_cache))
             if f.kind == "photo"
-            else InputMediaVideo(media=self._input(f, use_cache), supports_streaming=True)
+            else InputMediaVideo(media=self._input(f, use_cache), supports_streaming=True, **f.video_kwargs())
             for f in group
         ]
         return await self.bot.send_media_group(chat_id, items, request_timeout=UPLOAD_TIMEOUT)

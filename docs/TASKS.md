@@ -45,7 +45,8 @@
 - [x] Мониторинг: `/watch`, `/unwatch`, `/watching`; очередь вступлений с лимитами и FloodWait; фильтр слов → ИИ → карточка владельцу; кнопки 👍/👎; дубли по хэшу 7 дней; `/leadstats`.
 - [x] Миграции SQLite: `lead_seen` (хэш, дата), `lead_stats` (чат, дата, заявки, 👍, 👎), `join_queue`, `kv` (счётчик ИИ, время разведки). Никаких текстов и авторов.
 - [x] Тесты: слияние CSV, фильтр слов, разбор ответа ИИ, лимиты вступлений, дубли.
-- [ ] Деплой на `vibee-root`, вход юзербота, первая разведка, сквозная проверка по `docs/spec-leads.md` §10.
+- [x] Деплой на `vibee-root`: код v2, `config/leads.yml`, миграция SQLite, deploy key `data/ssh/leads-data` создан. Юзербот выключен, пока нет ключей; v1 работает как раньше.
+- [ ] После ключей от владельца: deploy key в `helping-bot-data`, вход юзербота, первая разведка, сквозная проверка по `docs/spec-leads.md` §10.
 
 ## Нужно от владельца
 - [x] Токен бота от @BotFather.
@@ -54,4 +55,5 @@
 - [x] ~~Fine-grained GitHub PAT~~ не понадобился (deploy key). Fine-grained GitHub PAT: Contents = Read-only для контент-репозиториев. Если агент сам создаёт webhook, нужно ещё Webhooks = Read and write.
 - [ ] **v2:** отдельный аккаунт Telegram для юзербота (не личный) и `api_id` / `api_hash` с my.telegram.org под ним.
 - [ ] **v2:** ключ ИИ (OpenAI / OpenRouter / DeepSeek) — `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`.
+- [ ] **v2:** добавить `data/ssh/leads-data.pub` в Deploy keys репозитория `helping-bot-data` с правом записи.
 - [ ] **v2:** создать приватный репозиторий `Torrexx52/helping-bot-data` (пустой, с README).

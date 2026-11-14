@@ -158,8 +158,10 @@ async def test_scout_with_history_assigns_tactics_and_templates(tmp_path, monkey
     assert all("шаблонная сеть: 4 одинаковых" in rows[f"zhk{i}_vrn"][T.NOTES] for i in range(4))
 
     text = summary_text(out, len(out.rows), 0, {r[T.LINK] for r in out.rows}, [])
-    order = [text.index(x) for x in ("🎯 Живые", "📢 Можно", "🧬 Шаблонные", "💀 Мёртвые")]
+    order = [text.index(x) for x in ("🎯 Живые", "📢 Можно")]
     assert order == sorted(order)
+    assert "Мёртвые" not in text and "Шаблонные" not in text and "zhk2_vrn" not in text  # не показываем
+    assert "Скрыто мёртвых: 1 · шаблонных клонов: 2" in text
     assert "Воронеж — общий чат</a> — Городской чат ТГ" not in text  # тип без ИИ — «Другое ТГ»
     assert "150 сообщ./нед · 40 авт." in text
 

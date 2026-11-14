@@ -39,6 +39,7 @@ TACTIC_TITLE = {
     A.TEMPLATE: "🧬 Шаблонные клоны (сеть одинаковых чатов)",
     A.DEAD: "💀 Мёртвые — меньше недели жизни",
 }
+HIDDEN_TACTICS = (A.DEAD, A.TEMPLATE)  # владельцу не показываем: работать с ними нельзя
 CAPTCHA_WORDS = ("капч", "captcha", "антиспам-бот", "пройти проверку", "пройдите проверку")
 
 SCOUT_SYSTEM = (
@@ -86,6 +87,7 @@ class ScoutOutcome:
     skipped_fresh: int = 0
     skipped_offtopic: int = 0
     skipped_discussion: int = 0
+    skipped_channels: int = 0
     templates: int = 0
     warnings: list[str] = field(default_factory=list)
     llm_used: bool = False
@@ -326,6 +328,7 @@ async def run_scout(
     queries = [cfg.queries[(offset + i) % n] for i in range(min(queries_per_run, n))]
 
     candidates: dict[str, tuple[FoundChat, str]] = {}
+    skipped_channels: set[str] = set()
     for i, query in enumerate(queries):
         if i:
             await sleep(random.uniform(3, 8))
@@ -339,8 +342,12 @@ async def run_scout(
             continue
         out.queries_done += 1
         for chat in found:
+            if chat.kind == "channel":
+                skipped_channels.add(chat.username.lower())  # каналы не нужны: объявление туда не дать
+                continue
             candidates.setdefault(chat.username.lower(), (chat, query))
     out.found = len(candidates)
+    out.skipped_channels = len(skipped_channels)
 
     todo = []
     for chat, query in candidates.values():
@@ -370,6 +377,9 @@ async def run_scout(
             break
         except UserbotError as e:
             log.info("Разведка: %s пропущен (%s)", chat.link, e)
+            continue
+        if info.kind == "channel":
+            out.skipped_channels += 1
             continue
         if info.discussion:
             # Чат комментариев канала: людей много, но говорят о постах канала, а не о быте.
@@ -420,12 +430,20 @@ def summary_text(out: ScoutOutcome, added: int, updated: int, new_links: set[str
         skipped += f" · барахолки и т. п.: {out.skipped_offtopic}"
     if out.skipped_discussion:
         skipped += f" · чаты каналов: {out.skipped_discussion}"
+    if out.skipped_channels:
+        skipped += f" · каналы: {out.skipped_channels}"
     lines.append(
         f"Запросов: {out.queries_done} · площадок в поиске: {out.found} · свежих пропущено: {out.skipped_fresh}"
         + (f"\nНе подошли{skipped}" if skipped else "")
     )
+    fresh = [r for r in out.rows if r[T.LINK] in new_links]
+    # Мёртвые и шаблонные клоны в таблице остаются (чтобы не проверять их заново), но в список не идут.
+    hidden = [r for r in fresh if r.get(T.TACTIC) in HIDDEN_TACTICS]
+    if hidden:
+        dead = sum(r.get(T.TACTIC) == A.DEAD for r in hidden)
+        lines.append(f"Скрыто мёртвых: {dead} · шаблонных клонов: {len(hidden) - dead}")
     new_rows = sorted(
-        (r for r in out.rows if r[T.LINK] in new_links),
+        (r for r in fresh if r.get(T.TACTIC) not in HIDDEN_TACTICS),
         key=lambda r: (
             TACTIC_ORDER.get(r.get(T.TACTIC, ""), 3),
             -int(r.get(T.MSGS_7D) or 0),
@@ -441,9 +459,6 @@ def summary_text(out: ScoutOutcome, added: int, updated: int, new_links: set[str
             lines.append("")
             lines.append(f"<b>{escape(TACTIC_TITLE.get(tactic, tactic))}</b>")
         name = f'<a href="{escape(r[T.LINK])}">{escape(r[T.NAME])}</a>'
-        if tactic in (A.DEAD, A.TEMPLATE):
-            lines.append(f"{i}. {name}")
-            continue
         details = [escape(r[T.TYPE]), _stats(r)]
         if r[T.RULES]:
             details.append(escape(r[T.RULES]))

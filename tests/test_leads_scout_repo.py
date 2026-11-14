@@ -109,9 +109,10 @@ async def test_scout_builds_rows_with_ai(storage):
     await llm.aclose()
 
     assert userbot.searched == ["Воронеж ЖК", "переезд Воронеж"]  # лимит запросов за запуск
-    assert (out.queries_done, out.found, out.skipped_fresh) == (2, 4, 0)
+    assert (out.queries_done, out.found, out.skipped_fresh, out.skipped_channels) == (2, 3, 0, 1)
+    assert "vrn_news" not in userbot.info_calls  # канал отброшен ещё на поиске
     rows = {r[T.LINK]: r for r in out.rows}
-    assert set(rows) == {"https://t.me/lazurny_vrn", "https://t.me/vrn_news", "https://t.me/sosedi_36"}
+    assert set(rows) == {"https://t.me/lazurny_vrn", "https://t.me/sosedi_36"}
 
     r = rows["https://t.me/lazurny_vrn"]
     assert r[T.NAME] == "ЖК Лазурный | соседи" and r[T.TYPE] == "ЖК-группа ТГ"
@@ -122,10 +123,6 @@ async def test_scout_builds_rows_with_ai(storage):
     assert (r[T.QUERY], r[T.FOUND_AT], r[T.CHECKED_AT]) == ("Воронеж ЖК", "2026-11-14", "2026-11-14")
     assert r[T.TG_ID] == str(lazur.tg_id)
 
-    c = rows["https://t.me/vrn_news"]
-    assert c[T.TYPE] == "Канал ТГ" and c[T.CAN_WRITE] == "no"  # канал остаётся каналом, что бы ни сказал ИИ
-    assert c[T.RULES] == "" and c[T.ADMIN] == ""  # выдуманные правила и контакт отброшены
-    assert c[T.NOTES] == "обсуждение: https://t.me/vrn_talk"
     assert rows["https://t.me/sosedi_36"][T.TYPE] == "Районный чат ТГ"  # гео-слов нет, но ИИ признал
 
 

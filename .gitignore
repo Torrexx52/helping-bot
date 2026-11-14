@@ -1,6 +1,9 @@
 .env
 data/
 config/projects.yml
+config/leads.yml
+*.session
+*.session-journal
 __pycache__/
 *.pyc
 .venv/

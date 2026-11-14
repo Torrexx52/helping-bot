@@ -359,12 +359,13 @@ def fallback_llm(storage: Storage, primary: object, seen: list, **kw) -> LLM:
     )
 
 
-@pytest.mark.parametrize("primary", [429, 500, 503, httpx.ReadTimeout("slow")])
+@pytest.mark.parametrize("primary", [404, 429, 500, 503, httpx.ReadTimeout("slow")])
 async def test_llm_fallback_model_on_429_5xx_timeout(storage, primary):
     seen: list = []
     llm = fallback_llm(storage, primary, seen, fallback_model="paid")
     assert await llm.classify_lead("нужна газель") == (True, "ок")
-    assert seen == ["free", "paid"]
+    # при 404 основная пробуется дважды: второй раз без response_format
+    assert seen[0] == "free" and seen[-1] == "paid" and seen.count("paid") == 1
     assert await llm.used_today() == 1  # в дневной лимит идёт один вызов
     await llm.aclose()
 

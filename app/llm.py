@@ -26,7 +26,12 @@ LEAD_SYSTEM = (
 )
 LEAD_QUESTION = (
     "Это человек, которому нужна перевозка, переезд, грузчики или вывоз (мебели, техники, мусора) "
-    "в Воронеже или области? Объявления тех, кто сам предлагает такие услуги, — не заявка.\n"
+    "в Воронеже или области? Заявка — когда автору самому нужно что-то перевезти, привезти, вывезти, "
+    "поднять на этаж или погрузить, либо он просит посоветовать перевозчика, газель, грузовое такси, "
+    "грузчиков. Слова могут быть с опечатками («перевести диван», «газелька»). "
+    "Не заявка: объявление того, кто сам предлагает такие услуги; вакансия; продажа или отдача вещей; "
+    "пассажирское такси и попутчики; доставка еды, посылок и заказов из магазинов; ответ другому "
+    "участнику и рассказ о прошлом переезде.\n"
     'Ответ строго JSON: {"lead": true|false, "summary": "..."}. '
     "Если да — в summary одна строка: что, откуда-куда, когда (только то, что есть в сообщении). "
     "Если нет — summary пустой.\n\nСообщение:\n"
@@ -65,11 +70,15 @@ def parse_lead_answer(text: str) -> tuple[bool, str]:
 
 
 def _retryable(e: Exception) -> bool:
-    """Стоит ли пробовать запасную модель: таймаут, 429 или 5xx."""
+    """Стоит ли пробовать запасную модель: таймаут, 429, 5xx или модели больше нет (404, 410).
+
+    404 — так OpenRouter отвечает, когда убирает бесплатную версию модели.
+    """
     if isinstance(e, httpx.TimeoutException):
         return True
     if isinstance(e, httpx.HTTPStatusError):
-        return e.response.status_code == 429 or e.response.status_code >= 500
+        code = e.response.status_code
+        return code in (404, 408, 410, 429) or code >= 500
     return False
 
 
@@ -148,7 +157,7 @@ class LLM:
             except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
                 if not self.fallback_model or not _retryable(e):
                     raise
-                log.info("ИИ: основная модель недоступна (%s) — запасная", _reason(e))
+                log.warning("ИИ: основная модель %s недоступна (%s) — запасная", self.model, _reason(e))
                 return await self._chat(self.fallback_model, messages)
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as e:
             raise LLMUnavailable(_reason(e)) from e

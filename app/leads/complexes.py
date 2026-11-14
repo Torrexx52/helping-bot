@@ -76,6 +76,7 @@ _ADDRESS_LIKE = re.compile(
 _TME = re.compile(r"(?:https?://)?(?:t|telegram)\.me/(?:s/)?(\+?[A-Za-z0-9_-]{4,})", re.I)
 _SOCIAL = re.compile(r"https?://(?:vk\.com|vk\.ru|ok\.ru)/[A-Za-z0-9_.\-/]+", re.I)
 _JUNK = " \"'«»“”„.,;:-()"
+_NOT_HOUSING = re.compile(r"гаражн|\bгск\b|деловой центр|бизнес-центр|паркинг|коттеджный пос", re.I)
 
 
 def clean_name(raw: str | None) -> str:
@@ -86,7 +87,7 @@ def clean_name(raw: str | None) -> str:
     quoted = _QUOTED.search(text)
     if quoted:
         text = quoted.group(1)
-    text = text.strip(_JUNK)
+    text = re.sub(r"^инстеп[.\s]+", "", text.strip(_JUNK), flags=re.I)  # «Инстеп.Скандинавия»
     # «ПОКОЛЕНИЕ, ЖК ПОКОЛЕНИЕ», «БОРОВОЕ ЖК БОРОВОЕ», «Бабяково. Новый квартал; Бабяково. Зеленый».
     text = re.split(r"\s*;\s*|,\s*жк\s|\sжк\s", text, maxsplit=1, flags=re.I)[0].strip(_JUNK) or text
     for _ in range(2):
@@ -96,7 +97,7 @@ def clean_name(raw: str | None) -> str:
             text = rest
     text = _SUFFIX.sub("", text).strip(_JUNK) or text
     text = re.sub(r"\s*-\s*", "-", text)  # «Суворов- Сити»
-    if text.isupper() and len(text) > 4 and not re.search(r"\d", text):
+    if text.isupper() and len(text) >= 4 and not re.search(r"\d", text):
         text = text.title()  # «САБУРОВ РЕЗИДЕНС»
     return text if len(text) >= 2 and not text.isdigit() else ""
 
@@ -119,7 +120,16 @@ def locality(address: str) -> str:
     """«Город Воронеж, Улица Острогожская» → «Воронеж»; «…, Село Новая Усмань, …» → «Новая Усмань»."""
     kinds = r"город|г\.|село|с\.|рабочий пос[её]лок|пос[её]лок|п\.|пгт|рп|деревня|хутор|слобода"
     found = re.findall(rf"(?:^|,\s*)(?i:{kinds})\s+([А-ЯЁ][^,]+)", address or "")
-    return found[-1].strip() if found else ""
+    if found:
+        return found[-1].strip()
+    # Адрес с Карт: «Воронежская обл., Новоусманский район, пос. Отрадное, …», «Воронеж, ул. …».
+    for part in (p.strip() for p in (address or "").split(",")):
+        if not part or re.search(r"обл|район|поселени|^россия$", part, re.I):
+            continue
+        if re.match(r"(?:ул|пр|пер|бул|наб|пл|мкр|улица|проспект|жилой)\b", part, re.I):
+            break
+        return re.sub(r"^(?:пос|с|д|х|рп|пгт)\.\s*", "", part)
+    return ""
 
 
 @dataclass
@@ -187,7 +197,7 @@ def add_domrf(complexes: dict[str, Complex], objects: list[dict]) -> int:
     unnamed = 0
     for o in objects:
         name = clean_name(o.get("objCommercNm"))
-        if not name:
+        if not name or _NOT_HOUSING.search(name):
             unnamed += 1
             continue
         c = complexes.setdefault(name_key(name), Complex(name))
@@ -240,7 +250,7 @@ def add_yandex(complexes: dict[str, Complex], items: list[dict], near_m: float =
         if "жилой комплекс" not in cats or it.get("st") == "closed":
             continue
         name = clean_name(it.get("t"))
-        if not name:
+        if not name or _NOT_HOUSING.search(name):
             continue
         lon, lat = (it.get("c") or [None, None])[:2]
         if lat and lon and distance_km(lat, lon) > 300:
@@ -358,6 +368,9 @@ def to_row(c: Complex, today: dt.date) -> dict[str, str]:
     z_points, z_why = size_points(c)
     g_points, km, g_why = geo_points(c)
     score = s_points + z_points + g_points
+    named = searchable(c.name)
+    if not named:
+        score = max(0, score - 15)  # дом без названия: чат по нему в Telegram не найти
     pos = c.lat_lon
     place = next((p for p in map(locality, c.addresses) if p), "")
     ready = ""
@@ -381,11 +394,11 @@ def to_row(c: Complex, today: dt.date) -> dict[str, str]:
         SITE: c.sites[0] if c.sites else "",
         CHATS: " ".join(chat_links(c)),
         SOCIAL: " ".join(social[:4]),
-        SEARCH: "да" if searchable(c.name) else "нет",
+        SEARCH: "да" if named else "нет",
         SOURCES: ", ".join(sorted(c.sources)),
         LAT: f"{pos[0]:.5f}" if pos else "",
         LON: f"{pos[1]:.5f}" if pos else "",
-        WHY: "; ".join(p for p in (s_why, z_why, g_why) if p),
+        WHY: "; ".join(p for p in (s_why, z_why, g_why, "" if named else "нет названия для поиска чата") if p),
     }
 
 

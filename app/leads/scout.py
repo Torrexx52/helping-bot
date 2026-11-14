@@ -450,6 +450,7 @@ async def run_scout(
             return
         except UserbotError as e:
             log.info("Разведка: %s пропущен (%s)", username, e)
+            out.rejected.append(username.lower())  # бот, удалённый или закрытый чат — не пробуем заново
             return
         out.checked += 1
         text = f"{info.title} {info.about}"

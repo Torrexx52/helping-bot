@@ -94,6 +94,11 @@ def test_registry_and_maps_are_merged_and_ranked():
 
     parsed = C.load_rows_text(C.dumps(rows))
     assert C.search_names(parsed)[0] == "Озерки" and len(C.search_names(parsed)) == 5
+    assert C.locality("Воронежская обл., Новоусманский район, пос. Отрадное, ул. Осиновая") == "Отрадное"
+    assert C.locality("Воронеж, ул. Шишкова") == "Воронеж" and C.locality("Воронежская обл., Лиски, ул. Титова") == "Лиски"
+    assert C.clean_name("Инстеп.Скандинавия") == "Скандинавия" and C.clean_name("РИТМ") == "Ритм"
+    garage: dict[str, C.Complex] = {}
+    assert C.add_domrf(garage, [house("Гаражный комплекс", 0, "2020-01-01")]) == 1 and not garage
     assert C.seed_links(parsed) == ["https://t.me/ozerki_vrn"]
 
 
@@ -155,5 +160,5 @@ async def test_scout_checks_seed_links_first_and_searches_listed_names(tmp_path)
     await storage.close()
     assert userbot.info_calls == ["ozerki_vrn", "dsk_vrn", "gone_chat"]
     assert [r[T.LINK] for r in out.rows] == ["https://t.me/ozerki_vrn"] and out.rows[0][T.QUERY] == "список ЖК"
-    assert out.rejected == ["dsk_vrn"] and out.seeds == 3  # канал застройщика отсеян и запомнен
+    assert out.rejected == ["dsk_vrn", "gone_chat"] and out.seeds == 3  # канал и пропавший чат запомнены
     assert userbot.searched == ["ЖК Воронеж", "ЖК Озерки", "ЖК Гран-При"]  # названия из списка — первыми

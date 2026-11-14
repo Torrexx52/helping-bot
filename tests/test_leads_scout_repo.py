@@ -231,8 +231,8 @@ async def test_summary_text(storage):
     assert lines[0] == "🔎 <b>Разведка</b>: найдено 11 новых, 1 обновлено"
     top = [line for line in lines if line[:1].isdigit()]
     assert len(top) == 11  # все новые, обновлённая c12 не в списке
-    assert "<b>Другое ТГ</b>" in lines
-    assert top[0] == '1. <a href="https://t.me/c11_vrn">Воронеж &lt;11&gt;</a> — 11 000'
+    assert "<b>❔ Без вывода — смотреть руками</b>" in lines  # истории нет — тактика не определена
+    assert top[0] == '1. <a href="https://t.me/c11_vrn">Воронеж &lt;11&gt;</a> — Другое ТГ · 11 000 уч.'
     assert lines[-1] == "⚠️ push не удался"
 
 

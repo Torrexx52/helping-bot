@@ -244,6 +244,12 @@ class ScoutConfig(BaseModel):
     # Не берём в таблицу: типы площадок (по умолчанию барахолки) и чаты с этими словами.
     skip_types: list[str] = ["Барахолка ТГ"]
     skip_words: list[str] = []
+    # Живость и тактика (spec-leads §3.3a). Числа — по последним `history` сообщениям группы.
+    history: int = Field(100, ge=0, le=300)  # 0 — историю не читать
+    monitor_week: int = Field(100, ge=1)  # «живой» для мониторинга: сообщений людей за 7 дней…
+    monitor_authors: int = Field(20, ge=1)  # …и разных авторов за 7 дней
+    dead_week: int = Field(7, ge=0)  # меньше сообщений за 7 дней — чат мёртвый
+    ads_min: int = Field(2, ge=1)  # столько разных авторов с объявлениями — реклама терпима
 
     _clean = field_validator("queries", "geo_words", "skip_types", "skip_words", mode="before")(_words)
 

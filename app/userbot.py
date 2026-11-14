@@ -15,6 +15,7 @@ from pathlib import Path
 from telethon import TelegramClient, errors, events, functions, types, utils
 
 from app.config import Settings
+from app.leads.activity import Msg
 
 log = logging.getLogger(__name__)
 
@@ -248,6 +249,47 @@ class Userbot:
             linked=linked,
             discussion=base.kind == "group" and bool(fc.linked_chat_id),
         )
+
+    async def recent_messages(self, username: str, limit: int = 100) -> list[Msg]:
+        """Последние сообщения публичной группы — без вступления. Только чтение истории."""
+        entity = await self._entity(username)
+        try:
+            raw = await self.client.get_messages(entity, limit=limit)
+        except errors.FloodWaitError as e:
+            raise FloodWait(e.seconds) from e
+        except (ValueError, errors.RPCError) as e:
+            raise UserbotError("история недоступна") from e
+        out = []
+        for m in raw:
+            if m is None or m.date is None:
+                continue
+            service = ""
+            if isinstance(m, types.MessageService):
+                action = m.action
+                if isinstance(
+                    action,
+                    (
+                        types.MessageActionChatAddUser,
+                        types.MessageActionChatJoinedByLink,
+                        types.MessageActionChatJoinedByRequest,
+                    ),
+                ):
+                    service = "join"
+                elif isinstance(action, types.MessageActionChatDeleteUser):
+                    service = "leave"
+                else:
+                    service = "other"
+            sender = getattr(m, "sender", None)
+            out.append(
+                Msg(
+                    date=m.date,
+                    sender_id=getattr(m, "sender_id", None) or 0,
+                    text=getattr(m, "message", "") or "",
+                    bot=bool(getattr(sender, "bot", False)),
+                    service=service,
+                )
+            )
+        return out
 
     # ---------- вступление ----------
 

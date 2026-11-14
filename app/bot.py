@@ -17,6 +17,8 @@ from app.access import AccessMiddleware, AccessPolicy
 from app.config import ConfigError, Settings, load_projects
 from app.context import Context
 from app.handlers import router
+from app.leads.handlers import router as leads_router
+from app.leads.service import Leads
 from app.storage import Storage
 from app.sync import Redactor, Syncer
 from app.webhook import make_app
@@ -29,6 +31,12 @@ COMMANDS = [
     BotCommand(command="errors", description="Посты с ошибками"),
     BotCommand(command="reload", description="Перечитать projects.yml"),
     BotCommand(command="help", description="Справка"),
+]
+LEADS_COMMANDS = [
+    BotCommand(command="scout", description="Разведка площадок"),
+    BotCommand(command="watching", description="За какими чатами слежу"),
+    BotCommand(command="leadstats", description="Заявки и точность"),
+    BotCommand(command="leads", description="Заявки: состояние"),
 ]
 
 
@@ -48,9 +56,13 @@ class RedactingFilter(logging.Filter):
 def setup_logging(settings: Settings) -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    handler.addFilter(RedactingFilter(Redactor(settings.BOT_TOKEN, settings.GITHUB_TOKEN)))
+    secrets = (settings.BOT_TOKEN, settings.GITHUB_TOKEN, settings.LLM_API_KEY, settings.TG_API_HASH)
+    handler.addFilter(RedactingFilter(Redactor(*secrets)))
     logging.basicConfig(level=settings.LOG_LEVEL.upper(), handlers=[handler], force=True)
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+    # Telethon и httpx на INFO пишут лишнее (адреса запросов, служебные события) — только предупреждения.
+    logging.getLogger("telethon").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def build_dispatcher(ctx: Context) -> Dispatcher:
@@ -58,6 +70,7 @@ def build_dispatcher(ctx: Context) -> Dispatcher:
     access = AccessMiddleware(AccessPolicy(ctx.settings.OWNER_TELEGRAM_ID))
     dp.message.outer_middleware(access)
     dp.callback_query.outer_middleware(access)
+    dp.include_router(leads_router)  # раньше основного: в нём ловушка «любой текст»
     dp.include_router(router)
     return dp
 
@@ -79,7 +92,8 @@ async def run() -> None:
     storage = Storage(settings.DATA_DIR / "bot.db")
     await storage.open()
     syncer = Syncer(storage, projects, settings.DATA_DIR, settings.GITHUB_TOKEN)
-    ctx = Context(settings, projects, storage, syncer)
+    leads = Leads(settings, storage)
+    ctx = Context(settings, projects, storage, syncer, leads=leads)
 
     app = make_app(lambda: ctx.projects, lambda repo_id: _sync_one(ctx, repo_id))
     runner = web.AppRunner(app, access_log=None)
@@ -98,10 +112,13 @@ async def run() -> None:
             if settings.OWNER_TELEGRAM_ID:
                 with contextlib.suppress(Exception):
                     await bot.set_my_commands(
-                        COMMANDS, scope=BotCommandScopeChat(chat_id=settings.OWNER_TELEGRAM_ID)
+                        COMMANDS + (LEADS_COMMANDS if ctx.leads_enabled else []),
+                        scope=BotCommandScopeChat(chat_id=settings.OWNER_TELEGRAM_ID),
                     )
             me = await bot.get_me()
             log.info("Telegram: @%s, long polling", me.username)
+            # v2 в фоне: подключение юзербота не задерживает бота и не может его уронить.
+            background.append(asyncio.create_task(leads.start(bot)))
             await dp.start_polling(bot, handle_signals=True)
         else:
             log.warning("BOT_TOKEN не задан — работают только синхронизация, webhook и /health")
@@ -109,6 +126,7 @@ async def run() -> None:
     finally:
         for t in background:
             t.cancel()
+        await leads.stop()
         await runner.cleanup()
         await storage.close()
 

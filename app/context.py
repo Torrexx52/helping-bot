@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.config import Projects, Settings, load_projects
+from app.leads.service import Leads
 from app.storage import Storage
 from app.sync import Syncer
 
@@ -25,6 +26,12 @@ class Context:
     storage: Storage
     syncer: Syncer
     views: dict[int, View] = field(default_factory=dict)
+    leads: Leads | None = None  # v2: поиск чатов и заявок
+
+    @property
+    def leads_enabled(self) -> bool:
+        """Показывать ли в меню v2: только когда в .env настроен юзербот."""
+        return self.leads is not None and self.settings.userbot_configured
 
     def reload_projects(self) -> Projects:
         projects = load_projects(self.settings.PROJECTS_FILE)

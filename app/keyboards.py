@@ -21,12 +21,15 @@ BTN_NEXT = "▶️ Далее"
 BTN_PUBLISHED = "✅ Опубликовал"
 BTN_POSTPONE = "⏸ Отложить"
 BTN_COPY = "📋 Копировать"
+BTN_LEADS = "🚚 Заявки"
 COPY_LIMIT = 256
 TITLE_LIMIT = 24
 
 
-def main_menu(projects: Projects) -> ReplyKeyboardMarkup:
+def main_menu(projects: Projects, leads: bool = False) -> ReplyKeyboardMarkup:
     rows = [[KeyboardButton(text=a.title)] for a in projects.accounts]
+    if leads:  # v2: кнопка появляется, когда в .env настроен юзербот
+        rows.append([KeyboardButton(text=BTN_LEADS)])
     rows.append([KeyboardButton(text=BTN_REFRESH_ALL)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 

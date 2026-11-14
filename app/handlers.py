@@ -29,7 +29,7 @@ ITEM_RE = re.compile(r"^(\d+) · ")
 
 
 async def show_menu(message: Message, ctx: Context, text: str = "Выбери аккаунт 👇") -> None:
-    await message.answer(text, reply_markup=kb.main_menu(ctx.projects))
+    await message.answer(text, reply_markup=kb.main_menu(ctx.projects, ctx.leads_enabled))
 
 
 async def show_queue(message: Message, ctx: Context, account_id: str, page: int = 1) -> None:
@@ -70,12 +70,18 @@ async def cmd_start(message: Message, ctx: Context) -> None:
 
 @router.message(Command("help"))
 async def cmd_help(message: Message, ctx: Context) -> None:
-    await message.answer(
+    text = (
         "Выбери аккаунт в меню → номер поста → получишь медиа, описание и подпись.\n\n"
         "/published — последние опубликованные\n/errors — посты с ошибками\n"
-        "/reload — перечитать projects.yml и синхронизировать\n/start — меню",
-        reply_markup=kb.main_menu(ctx.projects),
+        "/reload — перечитать projects.yml и синхронизировать\n/start — меню"
     )
+    if ctx.leads_enabled:
+        text += (
+            "\n\n<b>Чаты и заявки</b>\n/scout — разведка площадок\n"
+            "/watch &lt;ссылка&gt; · /unwatch &lt;ссылка&gt; — следить за чатом или перестать\n"
+            "/watching — за кем слежу\n/leadstats — заявки и точность"
+        )
+    await message.answer(text, reply_markup=kb.main_menu(ctx.projects, ctx.leads_enabled))
 
 
 @router.message(Command("errors"))
@@ -109,7 +115,12 @@ async def cmd_reload(message: Message, ctx: Context) -> None:
         return
     results = await ctx.syncer.sync_all("reload")
     ctx.views.pop(message.chat.id, None)
-    await show_menu(message, ctx, "🔁 projects.yml перечитан\n" + sync_summary(results))
+    note = ""
+    if ctx.leads is not None:
+        ctx.leads.load_config()
+        if ctx.leads_enabled and ctx.leads.cfg_error:
+            note = f"\n⚠️ {escape(ctx.leads.cfg_error)[:500]}"
+    await show_menu(message, ctx, "🔁 projects.yml перечитан\n" + sync_summary(results) + note)
 
 
 @router.message(Command("published"))

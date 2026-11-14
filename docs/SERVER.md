@@ -49,7 +49,7 @@ ssh -o BatchMode=yes -o StrictHostKeyChecking=yes vibee-root 'id -u; hostname -f
 
 Первый вход юзербота (делает владелец, код из Telegram вводит сам):
 ```bash
-cd /opt/helping-bot && docker compose run --rm -it bot python -m app.userbot_login && docker compose restart bot
+cd /opt/helping-bot && docker compose run --rm -it bot python -m app.userbot_login && docker compose up -d --force-recreate bot
 ```
 
 Контейнер публикует только `127.0.0.1:8081`, наружу порты не открываются, UFW не меняется.
@@ -87,3 +87,5 @@ docker compose -f /opt/helping-bot/docker-compose.yml logs -f --tail=100
 curl -s 127.0.0.1:8081/health
 systemctl is-active nginx php8.2-fpm mariadb
 ```
+
+`docker compose restart` не перечитывает `.env`: после правки `.env` нужен `docker compose up -d --force-recreate bot` (или `./scripts/deploy.sh`).

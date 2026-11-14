@@ -186,7 +186,7 @@ class Leads:
         if self.userbot is None:
             text = f"Юзербот не подключён: {self.userbot_note}."
             if self.settings.userbot_configured:
-                text += f"\nПервый вход на сервере:\n<code>{escape(LOGIN_COMMAND)} &amp;&amp; docker compose restart bot</code>"
+                text += f"\nПервый вход на сервере:\n<code>{escape(LOGIN_COMMAND)} &amp;&amp; docker compose up -d --force-recreate bot</code>"
             else:
                 text += "\nДобавь TG_API_ID и TG_API_HASH в .env (см. .env.example)."
             return text

@@ -1,6 +1,6 @@
 """Разовый вход юзербота. Запускает владелец на сервере, код из Telegram вводит сам:
 
-    docker compose run --rm -it bot python -m app.userbot_login && docker compose restart bot
+    docker compose run --rm -it bot python -m app.userbot_login && docker compose up -d --force-recreate bot
 
 Сессия сохраняется в data/userbot.session (права 600, в Git не попадает).
 """
@@ -39,7 +39,7 @@ async def login() -> int:
         me = await client.get_me()
         name = " ".join(p for p in (me.first_name, me.last_name) if p)
         print(f"Готово: {name} (@{me.username or '—'}, id {me.id}).")
-        print("Осталось перезапустить бота: docker compose restart bot")
+        print("Осталось пересоздать контейнер бота: docker compose up -d --force-recreate bot")
     finally:
         await client.disconnect()
         with contextlib.suppress(OSError):

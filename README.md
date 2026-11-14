@@ -40,7 +40,7 @@
 2. Публичную часть `data/ssh/leads-data.pub` добавить в приватный `helping-bot-data` →
    Settings → Deploy keys, **с правом записи**.
 3. Первый вход, один раз:
-   `cd /opt/helping-bot && docker compose run --rm -it bot python -m app.userbot_login && docker compose restart bot`
+   `cd /opt/helping-bot && docker compose run --rm -it bot python -m app.userbot_login && docker compose up -d --force-recreate bot`
 4. Слова и запросы — в `config/leads.yml` (пример: `config/leads.example.yml`), после правки `/reload`.
 
 Пока `TG_API_ID` пуст или нет сессии `data/userbot.session`, бот работает как v1. Площадки пишутся в

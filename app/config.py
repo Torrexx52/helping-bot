@@ -241,8 +241,11 @@ class ScoutConfig(BaseModel):
 
     queries: list[str] = Field(min_length=1)
     geo_words: list[str] = Field(min_length=1)
+    # Не берём в таблицу: типы площадок (по умолчанию барахолки) и чаты с этими словами.
+    skip_types: list[str] = ["Барахолка ТГ"]
+    skip_words: list[str] = []
 
-    _clean = field_validator("queries", "geo_words", mode="before")(_words)
+    _clean = field_validator("queries", "geo_words", "skip_types", "skip_words", mode="before")(_words)
 
 
 class MonitorConfig(BaseModel):

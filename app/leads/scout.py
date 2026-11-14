@@ -24,6 +24,9 @@ STALE_DAYS = 30
 MAX_FLOOD_WAIT = 600  # дольше не ждём: разведка заканчивается тем, что успела
 MAX_AI_GEO_CHECKS = 10  # сколько площадок без гео-слов за запуск показываем ИИ
 AD_RULES = ("разрешена", "запрещена", "платно", "через админа")
+FLEA_WORDS = ("барахолк", "объявлени", "куплю", "продам", "купи-продай", "купи продай", "отдам даром")
+# Порядок в «Лучших новых»: сначала чаты жильцов, потом районы.
+TYPE_PRIORITY = {"ЖК-группа ТГ": 0, "Районный чат ТГ": 1, "Другое ТГ": 2, "Канал ТГ": 3, "Барахолка ТГ": 4}
 CAPTCHA_WORDS = ("капч", "captcha", "антиспам-бот", "пройти проверку", "пройдите проверку")
 
 SCOUT_SYSTEM = (
@@ -33,7 +36,10 @@ SCOUT_SYSTEM = (
 )
 SCOUT_QUESTION = """По названию, описанию и закреплённому сообщению ответь JSON с полями:
 "voronezh": true|false — площадка про Воронеж или Воронежскую область (город, район, ЖК);
-"type": одно из "ЖК-группа ТГ", "Районный чат ТГ", "Барахолка ТГ", "Канал ТГ", "Другое ТГ";
+"type": одно из "ЖК-группа ТГ", "Районный чат ТГ", "Барахолка ТГ", "Канал ТГ", "Другое ТГ":
+  "ЖК-группа ТГ" — чат жильцов дома или ЖК; "Районный чат ТГ" — чат жителей района, посёлка, микрорайона;
+  "Барахолка ТГ" — чат, где в основном продают и покупают вещи (купи-продай, объявления, отдам даром),
+  даже если он привязан к району или ЖК;
 "ads": "разрешена" | "запрещена" | "платно" | "через админа" | "" — правила рекламы, если о них сказано;
 "ads_note": одна короткая фраза о правилах рекламы, по тексту, или "";
 "admin": контакт админа (@юзернейм, ссылка или телефон), только если он прямо указан в описании или закрепе, иначе "".
@@ -56,6 +62,7 @@ class ScoutOutcome:
     queries_done: int = 0
     found: int = 0
     skipped_fresh: int = 0
+    skipped_offtopic: int = 0
     warnings: list[str] = field(default_factory=list)
     llm_used: bool = False
 
@@ -73,9 +80,11 @@ def guess_type(info: ChatInfo) -> str:
     if info.kind == "channel":
         return "Канал ТГ"
     text = normalize(f"{info.title} {info.about}")
-    if has_word(text, ("жк", "жилой комплекс", "жилого комплекса")):
+    if has_word(normalize(info.title), FLEA_WORDS):
+        return "Барахолка ТГ"
+    if has_word(text, ("жк", "жилой комплекс", "жилого комплекса", "жильц", "домовой чат", "чат дома")):
         return "ЖК-группа ТГ"
-    if has_word(text, ("барахолк", "объявлени", "куплю", "продам", "купи-продай", "отдам даром")):
+    if has_word(text, FLEA_WORDS):
         return "Барахолка ТГ"
     if has_word(text, ("район", "микрорайон", "сосед", "жител", "берег")):
         return "Районный чат ТГ"
@@ -262,7 +271,11 @@ async def run_scout(
         out.llm_used = out.llm_used or analysis is not None
         if not geo and not (analysis and analysis.voronezh):
             continue
-        out.rows.append(build_row(info, analysis, query, today.isoformat()))
+        row = build_row(info, analysis, query, today.isoformat())
+        if row[T.TYPE] in cfg.skip_types or has_word(f"{info.title} {info.about}", cfg.skip_words):
+            out.skipped_offtopic += 1
+            continue
+        out.rows.append(row)
     if out.rows and not out.llm_used:
         out.warnings.append("ИИ недоступен — «Правила рекламы» и «Контакт админа» не заполнены")
     return out
@@ -273,11 +286,11 @@ def summary_text(out: ScoutOutcome, added: int, updated: int, new_links: set[str
     lines = [f"🔎 <b>Разведка</b>: найдено {added} новых, {updated} обновлено"]
     lines.append(
         f"Запросов: {out.queries_done} · площадок в поиске: {out.found} · свежих пропущено: {out.skipped_fresh}"
+        + (f" · не подошли (барахолки и т. п.): {out.skipped_offtopic}" if out.skipped_offtopic else "")
     )
     best = sorted(
         (r for r in out.rows if r[T.LINK] in new_links),
-        key=lambda r: int(r[T.MEMBERS] or 0),
-        reverse=True,
+        key=lambda r: (TYPE_PRIORITY.get(r[T.TYPE], 2), -int(r[T.MEMBERS] or 0)),
     )[:10]
     if best:
         lines.append("")

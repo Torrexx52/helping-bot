@@ -132,7 +132,8 @@ async def test_scout_builds_rows_with_ai(storage):
 async def test_scout_without_ai_uses_geo_words_and_heuristics(storage):
     chats = [
         info("zhk_vrn", "ЖК Европейский Воронеж", about="вход после проверки, капча"),
-        info("bar_vrn", "Барахолка Воронеж | куплю-продам", can_write=False, join_request=True),
+        info("bar_vrn", "Барахолка Воронеж | куплю-продам"),
+        info("lb_vrn", "Левый берег Воронеж", can_write=False, join_request=True),
         info("sosedi_36", "Соседи 36"),
     ]
     userbot = FakeUserbot({"Воронеж ЖК": chats})
@@ -140,10 +141,12 @@ async def test_scout_without_ai_uses_geo_words_and_heuristics(storage):
     out = await run_scout(userbot, llm, CFG, Table(), today=TODAY, queries_per_run=1, sleep=no_sleep)
     await llm.aclose()
     rows = {r[T.LINK].rsplit("/", 1)[1]: r for r in out.rows}
-    assert set(rows) == {"zhk_vrn", "bar_vrn"}  # без гео-слов и без ИИ — отсеяно
+    # без гео-слов и без ИИ — отсеяно; барахолка — пропущена
+    assert set(rows) == {"zhk_vrn", "lb_vrn"}
+    assert out.skipped_offtopic == 1
     assert rows["zhk_vrn"][T.TYPE] == "ЖК-группа ТГ" and rows["zhk_vrn"][T.JOIN] == "manual"
-    assert rows["bar_vrn"][T.TYPE] == "Барахолка ТГ" and rows["bar_vrn"][T.JOIN] == "request"
-    assert rows["bar_vrn"][T.NOTES] == "писать нельзя; вход по заявке"
+    assert rows["lb_vrn"][T.TYPE] == "Районный чат ТГ" and rows["lb_vrn"][T.JOIN] == "request"
+    assert rows["lb_vrn"][T.NOTES] == "писать нельзя; вход по заявке"
     assert all(r[T.RULES] == "" and r[T.ADMIN] == "" for r in out.rows)
     assert any("ИИ недоступен" in w for w in out.warnings)
 
@@ -405,3 +408,26 @@ async def test_data_repo_without_key_is_local_only(tmp_path):
     assert warning and "deploy key" in warning
     assert git(repo.path, "log", "-1", "--format=%s") == "scout: локально"
     assert (await repo.read())[0].rows[0][T.LINK] == "https://t.me/a_vrn"
+
+
+async def test_scout_skips_flea_markets_and_ranks_residents_first(storage):
+    chats = [
+        info("vrn_baraholka", "Барахолка Воронеж", members=9000),
+        info("lazurny_bar", "ЖК Лазурный барахолка", members=5000),
+        info("lev_bereg", "Левый берег Воронеж — соседи", members=800),
+        info("jk_lazurny", "ЖК Лазурный Воронеж", members=300),
+    ]
+    ub = FakeUserbot({"Воронеж ЖК": chats})
+    llm = llm_with(storage, None)
+    out = await run_scout(ub, llm, CFG, Table([]), today=TODAY, sleep=no_sleep)
+    names = [r[T.NAME] for r in out.rows]
+    assert "Барахолка Воронеж" not in names and "ЖК Лазурный барахолка" not in names
+    assert out.skipped_offtopic == 2
+    text = summary_text(out, len(out.rows), 0, {r[T.LINK] for r in out.rows}, [])
+    assert text.index("ЖК Лазурный Воронеж") < text.index("Левый берег")
+    assert "не подошли" in text
+
+
+def test_guess_type_flea_title_wins_over_jk():
+    assert guess_type(info("x", "ЖК Озерки барахолка")) == "Барахолка ТГ"
+    assert guess_type(info("y", "Чат жильцов дома на Шишкова")) == "ЖК-группа ТГ"

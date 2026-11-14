@@ -39,15 +39,45 @@ async def cmd_leads(message: Message, ctx: Context) -> None:
     await _reply(message, await ctx.leads.panel_text())
 
 
+SCOUT_STARTED = "🔎 Разведка запущена. Это несколько минут — пришлю итог сообщением."
+SCOUT_ANYWAY = InlineKeyboardMarkup(
+    inline_keyboard=[[InlineKeyboardButton(text="🔎 Искать всё равно", callback_data="scout:go")]]
+)
+
+
+def _start_scout(ctx: Context) -> None:
+    task = asyncio.create_task(ctx.leads.run_scout())
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
 @router.message(Command("scout"))
 async def cmd_scout(message: Message, ctx: Context) -> None:
     if reason := await ctx.leads.scout_blocker():
         await _reply(message, reason)
         return
-    task = asyncio.create_task(ctx.leads.run_scout())
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
-    await message.answer("🔎 Разведка запущена. Это несколько минут — пришлю итог сообщением.")
+    if advice := await ctx.leads.scout_advice():
+        await message.answer(advice, reply_markup=SCOUT_ANYWAY)
+        return
+    _start_scout(ctx)
+    await message.answer(SCOUT_STARTED)
+
+
+@router.callback_query(F.data == "scout:go")
+async def cb_scout_go(call: CallbackQuery, ctx: Context) -> None:
+    """Кнопка «Искать всё равно»: разведка раньше, чем через сутки, по решению владельца."""
+    if isinstance(call.message, Message):
+        with contextlib.suppress(TelegramBadRequest):
+            await call.message.edit_reply_markup(reply_markup=None)
+    if reason := await ctx.leads.scout_blocker():
+        await call.answer()
+        if isinstance(call.message, Message):
+            await _reply(call.message, reason)
+        return
+    _start_scout(ctx)
+    await call.answer("Запускаю")
+    if isinstance(call.message, Message):
+        await call.message.answer(SCOUT_STARTED)
 
 
 @router.message(Command("watch"))

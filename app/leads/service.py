@@ -32,7 +32,7 @@ from app.userbot import LOGIN_COMMAND, FloodWait, JoinManual, Userbot, UserbotEr
 
 log = logging.getLogger(__name__)
 
-SCOUT_MIN_INTERVAL = dt.timedelta(hours=20)  # «не чаще раза в сутки» с запасом на расписание
+SCOUT_MIN_INTERVAL = dt.timedelta(hours=20)  # совет «не чаще раза в сутки» с запасом на расписание
 RECONCILE_EVERY = 600
 JOIN_TICK = 30
 JOIN_PAUSE = (120, 360)  # 2–6 минут между вступлениями
@@ -309,16 +309,25 @@ class Leads:
     # ---------- разведка ----------
 
     async def scout_blocker(self) -> str:
+        """Почему разведку запустить нельзя совсем (не настроено или уже идёт)."""
         if text := self.blocker():
             return text
         if self._scout_lock.locked():
             return "Разведка уже идёт — пришлю итог, когда закончу."
+        return ""
+
+    async def scout_advice(self) -> str:
+        """Совет подождать, если разведка была недавно. Не запрет: владелец может запустить всё равно."""
         last = await self.storage.kv_get("scout_last")
         if last:
-            next_at = dt.datetime.fromisoformat(last) + SCOUT_MIN_INTERVAL
-            if next_at > self.now():
-                when = next_at.astimezone(self.tz).strftime("%d.%m %H:%M")
-                return f"Разведка — не чаще раза в сутки (так безопаснее для аккаунта). Следующая — после {when}."
+            done = dt.datetime.fromisoformat(last)
+            if done + SCOUT_MIN_INTERVAL > self.now():
+                return (
+                    f"Разведка уже была {done.astimezone(self.tz).strftime('%d.%m в %H:%M')}. "
+                    "Советую не чаще раза в сутки: Telegram может на время ограничить поиск аккаунту, "
+                    "а площадки, проверенные за последние 30 дней, повторно не разбираются.\n"
+                    "Запустить всё равно?"
+                )
         return ""
 
     async def run_scout(self) -> None:
@@ -371,7 +380,8 @@ class Leads:
                 target += dt.timedelta(days=1)
             await asyncio.sleep((target - now).total_seconds())
             try:
-                if not await self.scout_blocker():
+                # По расписанию совет «раз в сутки» соблюдаем строго: чаще — только вручную.
+                if not await self.scout_blocker() and not await self.scout_advice():
                     await self.run_scout()
             except Exception:  # noqa: BLE001
                 log.exception("Разведка по расписанию не удалась")

@@ -215,11 +215,14 @@ async def test_watch_bad_links_and_unknown_chat(leads):
 
 async def test_scout_blockers(leads):
     assert await leads.scout_blocker() == ""
+    assert await leads.scout_advice() == ""
+    # Недавняя разведка — совет подождать, но не запрет: запустить вручную можно.
     await leads.storage.kv_set("scout_last", dt.datetime.now(dt.UTC).isoformat(timespec="seconds"))
-    assert "не чаще раза в сутки" in await leads.scout_blocker()
+    assert await leads.scout_blocker() == ""
+    assert "не чаще раза в сутки" in await leads.scout_advice()
     old = dt.datetime.now(dt.UTC) - dt.timedelta(hours=21)
     await leads.storage.kv_set("scout_last", old.isoformat(timespec="seconds"))
-    assert await leads.scout_blocker() == ""
+    assert await leads.scout_advice() == ""
     leads.userbot = None
     leads.userbot_note = "нет сессии — нужен первый вход"
     assert "app.userbot_login" in await leads.scout_blocker()

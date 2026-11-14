@@ -9,6 +9,12 @@ chmod 600 .env
 mkdir -p data
 
 git pull --ff-only
+# v2: слова и запросы для заявок. Свой config/leads.yml не перезаписывается.
+if [ ! -f config/leads.yml ]; then
+    cp config/leads.example.yml config/leads.yml
+    echo "Создан config/leads.yml из примера"
+fi
+[ ! -f data/userbot.session ] || chmod 600 data/userbot.session
 docker compose up -d --build --remove-orphans
 docker image prune -f >/dev/null
 

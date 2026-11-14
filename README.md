@@ -24,6 +24,29 @@
 `/start` — меню аккаунтов · `/published` — последние 20 опубликованных с возвратом в очередь ·
 `/errors` — невалидные посты и ошибки синхронизации · `/reload` — перечитать `projects.yml` и синхронизировать.
 
+## Чаты и заявки (v2)
+Юзербот (отдельный аккаунт Telegram, Telethon) ищет воронежские чаты и присылает в личку сообщения
+вида «нужна газель / грузчики / переезд». Он только читает; отвечает клиенту владелец сам.
+Требования — [`docs/spec-leads.md`](docs/spec-leads.md).
+
+`/scout` — разведка площадок (не чаще раза в сутки) · `/watch <ссылка>` / `/unwatch <ссылка>` — следить
+за чатом или перестать · `/watching` — за кем слежу · `/leadstats` — заявки и точность 👍/👎 ·
+кнопка `🚚 Заявки` — состояние.
+
+Включить:
+1. В `/opt/helping-bot/.env` добавить `TG_API_ID`, `TG_API_HASH` (my.telegram.org, под аккаунтом юзербота)
+   и `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (см. `.env.example`). Без ключа ИИ заявки приходят
+   с пометкой «без проверки».
+2. Публичную часть `data/ssh/leads-data.pub` добавить в приватный `helping-bot-data` →
+   Settings → Deploy keys, **с правом записи**.
+3. Первый вход, один раз:
+   `cd /opt/helping-bot && docker compose run --rm -it bot python -m app.userbot_login && docker compose restart bot`
+4. Слова и запросы — в `config/leads.yml` (пример: `config/leads.example.yml`), после правки `/reload`.
+
+Пока `TG_API_ID` пуст или нет сессии `data/userbot.session`, бот работает как v1. Площадки пишутся в
+`chats/telegram.csv` репозитория данных; тексты и авторы заявок не сохраняются нигде, кроме личного
+сообщения владельцу.
+
 ## Разработка
 ```bash
 uv venv -p 3.12 .venv && uv pip install -e ".[dev]"

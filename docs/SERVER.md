@@ -39,6 +39,17 @@ ssh -o BatchMode=yes -o StrictHostKeyChecking=yes vibee-root 'id -u; hostname -f
 /opt/helping-bot/config/projects.yml
 /opt/helping-bot/data/            # SQLite + клоны контент-репозиториев
 /var/backups/helping-bot/         # ежедневные копии SQLite, 14 дней
+
+# v2 (docs/spec-leads.md)
+/opt/helping-bot/config/leads.yml         # запросы разведки, ключевые и стоп-слова
+/opt/helping-bot/data/userbot.session     # сессия юзербота, chmod 600, не копировать и не коммитить
+/opt/helping-bot/data/ssh/leads-data      # deploy key с записью для helping-bot-data (.pub — в GitHub)
+/opt/helping-bot/data/leads-data/         # клон репозитория данных
+```
+
+Первый вход юзербота (делает владелец, код из Telegram вводит сам):
+```bash
+cd /opt/helping-bot && docker compose run --rm -it bot python -m app.userbot_login && docker compose restart bot
 ```
 
 Контейнер публикует только `127.0.0.1:8081`, наружу порты не открываются, UFW не меняется.

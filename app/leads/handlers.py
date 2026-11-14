@@ -39,7 +39,7 @@ async def cmd_leads(message: Message, ctx: Context) -> None:
     await _reply(message, await ctx.leads.panel_text())
 
 
-SCOUT_STARTED = "🔎 Разведка запущена. Это несколько минут — пришлю итог сообщением."
+SCOUT_STARTED = "🔎 Разведка запущена. Это до получаса — пришлю итог сообщением."
 SCOUT_ANYWAY = InlineKeyboardMarkup(
     inline_keyboard=[[InlineKeyboardButton(text="🔎 Искать всё равно", callback_data="scout:go")]]
 )

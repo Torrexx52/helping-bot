@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     LEADS_DATA_BRANCH: str = "main"
     LEADS_FILE: Path = Path("config/leads.yml")
     JOIN_PER_DAY: int = Field(default=15, ge=0)
-    SCOUT_QUERIES_PER_RUN: int = Field(default=20, ge=1)
-    SCOUT_MAX_CHATS: int = Field(default=60, ge=1)
+    SCOUT_QUERIES_PER_RUN: int = Field(default=60, ge=1)
+    SCOUT_MAX_CHATS: int = Field(default=250, ge=1)
     SCOUT_CRON: str = ""
 
     @field_validator("OWNER_TELEGRAM_ID", "TG_API_ID", mode="before")
@@ -241,6 +241,16 @@ class ScoutConfig(BaseModel):
 
     queries: list[str] = Field(min_length=1)
     geo_words: list[str] = Field(min_length=1)
+    # Режим «только ЖК» (spec-leads §3.0). Названия ЖК подставляются в шаблоны `complex_queries`
+    # и дают дополнительные поисковые запросы; чат с таким названием считается чатом ЖК.
+    complexes: list[str] = []
+    complex_queries: list[str] = ["ЖК {name}", "{name} Воронеж"]
+    # Слова, по которым чат без ИИ признаётся чатом ЖК / дома.
+    complex_words: list[str] = ["жк", "жилой комплекс", "жилого комплекса", "жильц", "домовой чат", "чат дома"]
+    # Брать в таблицу только эти типы площадок. Пусто — любые (кроме `skip_types`).
+    only_types: list[str] = []
+    # Сколько подходящих (не мёртвых и не клонов) площадок набрать за один запуск.
+    target: int = Field(60, ge=1, le=200)
     # Не берём в таблицу: типы площадок (по умолчанию барахолки) и чаты с этими словами.
     skip_types: list[str] = ["Барахолка ТГ"]
     skip_words: list[str] = []
@@ -251,7 +261,29 @@ class ScoutConfig(BaseModel):
     dead_week: int = Field(7, ge=0)  # меньше сообщений за 7 дней — чат мёртвый
     ads_min: int = Field(2, ge=1)  # столько разных авторов с объявлениями — реклама терпима
 
-    _clean = field_validator("queries", "geo_words", "skip_types", "skip_words", mode="before")(_words)
+    _clean = field_validator(
+        "queries", "geo_words", "skip_types", "skip_words", "complexes", "complex_queries", "complex_words",
+        "only_types", mode="before",
+    )(_words)  # fmt: skip
+
+    @field_validator("complex_queries")
+    @classmethod
+    def _templates(cls, v: list[str]) -> list[str]:
+        if any("{name}" not in t for t in v):
+            raise ValueError("в каждом шаблоне complex_queries должно быть {name}")
+        return v
+
+    def all_queries(self) -> list[str]:
+        """Общие запросы, затем каждый шаблон по всем ЖК: сначала «ЖК <имя>» для всех, потом следующий."""
+        out = list(self.queries)
+        seen = {q.lower() for q in out}
+        for template in self.complex_queries:
+            for name in self.complexes:
+                q = template.replace("{name}", name)
+                if q.lower() not in seen:
+                    seen.add(q.lower())
+                    out.append(q)
+        return out
 
 
 class MonitorConfig(BaseModel):

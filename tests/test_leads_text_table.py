@@ -16,7 +16,8 @@ EXAMPLE = ROOT / "config" / "leads.example.yml"
 
 def test_example_leads_config_valid():
     cfg = load_leads(EXAMPLE)
-    assert "переезд Воронеж" in cfg.scout.queries
+    assert "ЖК Воронеж" in cfg.scout.queries and "ЖК Озерки" in cfg.scout.all_queries()
+    assert cfg.scout.only_types == ["ЖК-группа ТГ"] and cfg.scout.target == 60
     assert "воронеж" in cfg.scout.geo_words
     assert cfg.monitor.keywords and cfg.monitor.stop_words
 

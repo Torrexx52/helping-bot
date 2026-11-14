@@ -114,7 +114,7 @@ def chat(username: str, title: str, about: str = "", **kw) -> ChatInfo:
 async def test_scout_with_history_assigns_tactics_and_templates(tmp_path, monkeypatch):
     from app.storage import Storage
 
-    monkeypatch.setattr(A, "measure", lambda msgs, now, sample_size=25: _measure(msgs, sample_size))
+    monkeypatch.setattr(A, "measure", lambda msgs, now, sample_size=25, limit=0: _measure(msgs, sample_size))
     clone_about = "Чат жильцов ЖК {}. Вход через бота-проверку. Правила в закрепе. Реклама только у админа."
     chats = [
         chat("vrn_city", "Воронеж — общий чат", members=9000),
@@ -171,3 +171,13 @@ _real_measure = A.measure
 
 def _measure(msgs, sample_size):
     return _real_measure(msgs, NOW, sample_size)
+
+
+def test_measure_estimates_week_when_history_is_saturated():
+    """Все 100 запрошенных сообщений написаны за 12 часов — за неделю их около 1400."""
+    busy = [Msg(NOW - dt.timedelta(minutes=7.2 * i), 100 + i % 30, f"реплика {i}") for i in range(100)]
+    assert _real_measure(busy, NOW).msgs_7d == 100  # без `limit` — как посчитано
+    act = _real_measure(busy, NOW, limit=100)
+    assert 1300 < act.msgs_7d < 1500 and act.authors_7d == 30
+    quiet = [Msg(NOW - dt.timedelta(days=i), 1, "привет") for i in range(100)]
+    assert _real_measure(quiet, NOW, limit=100).msgs_7d == 8  # выборка покрывает неделю — не оцениваем

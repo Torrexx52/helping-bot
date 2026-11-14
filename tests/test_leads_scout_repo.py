@@ -11,8 +11,9 @@ import pytest
 
 from app.config import ScoutConfig
 from app.leads import table as T
+from app.leads.activity import Msg
 from app.leads.datarepo import DataRepo
-from app.leads.scout import build_row, guess_type, parse_analysis, run_scout, summary_text
+from app.leads.scout import build_row, guess_type, needs_recheck, parse_analysis, run_scout, summary_text
 from app.leads.service import parse_scout_time
 from app.leads.table import Table
 from app.llm import LLM
@@ -170,8 +171,8 @@ async def test_scout_skips_fresh_rechecks_stale_and_rotates_queries(storage):
 async def test_scout_flood_wait_and_errors(storage):
     a, b = info("a_vrn", "Воронеж А", members=500), info("b_vrn", "Воронеж Б", members=50)
     userbot = FakeUserbot(
-        {"Воронеж ЖК": [a], "переезд Воронеж": [b]},
-        fail={"Воронеж ЖК": FloodWait(30), "барахолка Воронеж": UserbotError("X"), "b_vrn": FloodWait(5000)},
+        {"Воронеж ЖК": [a], "барахолка Воронеж": [b]},
+        fail={"Воронеж ЖК": FloodWait(30), "переезд Воронеж": UserbotError("X"), "b_vrn": FloodWait(5000)},
     )
     slept: list[float] = []
 
@@ -185,7 +186,7 @@ async def test_scout_flood_wait_and_errors(storage):
     assert userbot.searched == ["Воронеж ЖК", "Воронеж ЖК", "переезд Воронеж", "барахолка Воронеж"]
     assert out.queries_done == 2
     assert [r[T.LINK] for r in out.rows] == ["https://t.me/a_vrn"]  # до длинного FloodWait успели одну
-    assert any("5000" in w for w in out.warnings) and any("барахолка" in w for w in out.warnings)
+    assert any("5000" in w for w in out.warnings) and any("переезд" in w for w in out.warnings)
 
 
 async def test_scout_limits_chats_per_run(storage):
@@ -442,3 +443,133 @@ async def test_scout_skips_channel_discussion_chats_and_lists_all(storage):
     assert "news_talk" not in ub.info_calls or all("news_talk" not in r[T.LINK] for r in out.rows)
     text = summary_text(out, 15, 0, {r[T.LINK] for r in out.rows}, [])
     assert "15. " in text and "чаты каналов: 1" in text
+
+
+# ---------- режим «только ЖК» ----------
+
+JK_CFG = ScoutConfig(
+    queries=["ЖК Воронеж"],
+    geo_words=["воронеж"],
+    complexes=["Озерки", "Гран-При"],
+    only_types=["ЖК-группа ТГ"],
+    skip_words=["барахолк"],
+    target=2,
+    dead_week=5,
+)
+
+
+class JkUserbot(FakeUserbot):
+    def __init__(self, results, history=None) -> None:
+        super().__init__(results)
+        self.history = history or {}
+
+    async def recent_messages(self, username: str, limit: int = 100) -> list[Msg]:
+        if username not in self.history:
+            raise UserbotError("история недоступна")
+        return self.history[username]
+
+
+def said(n: int, text: str = "добрый день, соседи") -> list[Msg]:
+    now = dt.datetime.now(dt.UTC)
+    return [Msg(now - dt.timedelta(hours=i), 100 + i, text) for i in range(n)]
+
+
+def test_scout_config_builds_complex_queries():
+    assert JK_CFG.all_queries() == [
+        "ЖК Воронеж", "ЖК Озерки", "ЖК Гран-При", "Озерки Воронеж", "Гран-При Воронеж",
+    ]  # fmt: skip
+    with pytest.raises(ValueError, match="name"):
+        ScoutConfig(queries=["a"], geo_words=["b"], complex_queries=["ЖК"])
+
+
+def test_guess_type_knows_configured_complexes():
+    assert guess_type(info("a", "Озерки | соседи"), JK_CFG) == "ЖК-группа ТГ"
+    assert guess_type(info("a", "Озерки | соседи")) == "Районный чат ТГ"
+    assert guess_type(info("a", "ЖК Озерки барахолка"), JK_CFG) == "Барахолка ТГ"
+
+
+async def test_jk_mode_takes_only_complex_chats_and_stops_at_target(storage):
+    city = info("vrn_chat", "Воронеж чат", members=90000)
+    flea = info("oz_bar", "ЖК Озерки барахолка Воронеж", members=5000)
+    ozerki = info("ozerki_vrn", "ЖК Озерки Воронеж", members=4000)
+    no_city = info("granpri", "Гран-При соседи", members=900)  # город — только в репликах
+    other = info("granpri_msk", "ЖК Гран-При", members=800)  # ЖК с таким названием в другом городе
+    dead = info("jk_dead", "ЖК Тихий Воронеж", members=700)
+    late = info("jk_late", "ЖК Поздний Воронеж", members=10)
+    userbot = JkUserbot(
+        {"ЖК Воронеж": [city, flea, ozerki, dead], "ЖК Озерки": [ozerki], "ЖК Гран-При": [no_city, other, late]},
+        {
+            "ozerki_vrn": said(40),
+            "granpri": said(20, "кто едет в центр Воронежа?"),
+            "granpri_msk": said(30),
+            "jk_dead": said(2),
+            "jk_late": said(50),
+        },
+    )
+    llm = llm_with(storage, None)
+    out = await run_scout(userbot, llm, JK_CFG, Table(), today=TODAY, sleep=no_sleep)
+    await llm.aclose()
+
+    rows = {r[T.LINK].rsplit("/", 1)[1]: r for r in out.rows}
+    assert set(rows) == {"ozerki_vrn", "jk_dead", "granpri"}
+    assert all(r[T.TYPE] == "ЖК-группа ТГ" for r in out.rows)
+    assert rows["jk_dead"][T.TACTIC] == "мёртвый" and (out.good, out.target) == (2, 2)
+    assert (out.skipped_type, out.skipped_offtopic, out.skipped_geo) == (1, 1, 0)
+    # Цель набрана на «Гран-При соседи»: дальше ни чаты, ни запросы не тратятся.
+    assert userbot.info_calls == ["vrn_chat", "oz_bar", "ozerki_vrn", "jk_dead", "granpri"]
+    assert userbot.searched == ["ЖК Воронеж", "ЖК Озерки", "ЖК Гран-При"] and out.queries_done == 3
+    assert sorted(out.rejected) == ["oz_bar", "vrn_chat"]
+
+    text = summary_text(out, 3, 0, {r[T.LINK] for r in out.rows}, [], JK_CFG.only_types)
+    lines = text.splitlines()
+    assert lines[0] == "🏘 <b>Чаты ЖК</b>: 2 из 2 за заход"
+    assert "Не подошли · не ЖК: 1 · барахолки и т. п.: 1" in text and "Скрыто мёртвых: 1" in text
+    top = [line for line in lines if line[:1].isdigit()]
+    assert [line.split("</a>")[0].split(">")[1] for line in top] == ["ЖК Озерки Воронеж", "Гран-При соседи"]
+    assert "Меньше цели" not in text
+
+
+async def test_jk_mode_drops_foreign_complex_and_remembers_rejected(storage):
+    other = info("granpri_msk", "ЖК Гран-При", members=800)
+    ozerki = info("ozerki_vrn", "ЖК Озерки Воронеж", members=4000)
+    userbot = JkUserbot(
+        {"ЖК Воронеж": [other, ozerki]}, {"granpri_msk": said(30), "ozerki_vrn": said(40)}
+    )
+    llm = llm_with(storage, None)
+    out = await run_scout(userbot, llm, JK_CFG, Table(), today=TODAY, queries_per_run=1, sleep=no_sleep)
+    assert [r[T.NAME] for r in out.rows] == ["ЖК Озерки Воронеж"]
+    assert (out.skipped_geo, out.rejected) == (1, ["granpri_msk"])
+    text = summary_text(out, 1, 0, {r[T.LINK] for r in out.rows}, [], JK_CFG.only_types)
+    assert "не Воронеж: 1" in text and "Меньше цели" in text
+
+    # Следующий запуск: отсеянный чат не проверяется снова.
+    userbot.info_calls.clear()
+    again = await run_scout(
+        userbot, llm, JK_CFG, Table(out.rows), today=TODAY, queries_per_run=1,
+        rejected={"granpri_msk"}, sleep=no_sleep,
+    )  # fmt: skip
+    await llm.aclose()
+    assert userbot.info_calls == [] and (again.skipped_known, again.skipped_fresh) == (1, 1)
+
+
+async def test_jk_mode_rechecks_old_rows_without_activity(storage):
+    """ЖК-чаты, найденные до замера живости, перепроверяются первыми — без поиска."""
+    old = info("old_jk", "ЖК Старый Воронеж", members=3000)
+    closed = info("closed_jk", "ЖК Закрытый Воронеж", members=2000)
+    existing = Table(
+        [
+            {T.LINK: "https://t.me/old_jk", T.TYPE: "ЖК-группа ТГ", T.KIND: "group", T.CHECKED_AT: "2026-11-13"},
+            {T.LINK: "https://t.me/closed_jk", T.TYPE: "ЖК-группа ТГ", T.KIND: "group", T.CHECKED_AT: "2026-11-13"},
+            {T.LINK: "https://t.me/vrn_city", T.TYPE: "Другое ТГ", T.KIND: "group", T.CHECKED_AT: "2026-11-13"},
+        ]
+    )
+    userbot = JkUserbot({"-": [old, closed]}, {"old_jk": said(30)})
+    llm = llm_with(storage, None)
+    out = await run_scout(userbot, llm, JK_CFG, existing, today=TODAY, queries_per_run=1, sleep=no_sleep)
+    await llm.aclose()
+    assert userbot.info_calls == ["old_jk", "closed_jk"]
+    rows = {r[T.LINK].rsplit("/", 1)[1]: r for r in out.rows}
+    assert rows["old_jk"][T.MSGS_7D] == "30"
+    assert rows["closed_jk"][T.MSGS_7D] == "" and "история недоступна" in rows["closed_jk"][T.NOTES]
+    existing.merge(out.rows)
+    assert not any(needs_recheck(r, JK_CFG) for r in existing.rows)  # второй раз не перепроверяем

@@ -62,12 +62,19 @@ def is_ad(text: str) -> bool:
     return bool(PHONE_RE.search(text)) or has_word(t, AD_WORDS)
 
 
-def measure(msgs: list[Msg], now: dt.datetime, sample_size: int = 25) -> Activity:
+def measure(msgs: list[Msg], now: dt.datetime, sample_size: int = 25, limit: int = 0) -> Activity:
+    """`limit` — сколько сообщений запрашивали. Если пришло столько же и все они моложе недели,
+    чат активнее, чем видно в выборке: число сообщений за 7 дней оценивается по темпу."""
     act = Activity()
     week_ago = now - WEEK
     people = [m for m in msgs if not m.service and not m.bot and m.text.strip()]
     recent = [m for m in people if m.date >= week_ago]
     act.msgs_7d = len(recent)
+    if limit and len(msgs) >= limit:
+        oldest = min(m.date for m in msgs)
+        if oldest > week_ago:
+            span = max(now - oldest, dt.timedelta(hours=1))
+            act.msgs_7d = round(len(recent) * (WEEK / span))
     act.authors_7d = len({m.sender_id for m in recent})
     if people:
         act.last_days = max(0, (now - max(m.date for m in people)).days)

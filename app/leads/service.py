@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
+import json
 import logging
 import random
 import re
@@ -22,7 +23,7 @@ from app.config import ConfigError, LeadsConfig, Settings, load_leads
 from app.leads import table as T
 from app.leads.datarepo import DataRepo, DataRepoError
 from app.leads.monitor import Monitor, Watched, join_wait
-from app.leads.scout import build_row, run_scout, summary_text
+from app.leads.scout import STALE_DAYS, build_row, run_scout, summary_text
 from app.leads.table import Table, is_yes
 from app.leads.text import WordFilter, link_key, link_username, normalize_link
 from app.llm import LLM
@@ -349,28 +350,59 @@ class Leads:
         s = self.settings
         existing, _ = await self.repo.read()
         offset = int(await self.storage.kv_get("scout_offset", "0"))
+        today = dt.datetime.now(self.tz).date()
+        rejected = await self._scout_rejected(today)
         out = await run_scout(
             self.userbot,
             self.llm,
             self.cfg.scout,
             existing,
-            today=dt.datetime.now(self.tz).date(),
+            today=today,
             queries_per_run=s.SCOUT_QUERIES_PER_RUN,
             max_chats=s.SCOUT_MAX_CHATS,
             offset=offset,
+            rejected=set(rejected),
         )
-        await self.storage.kv_set("scout_offset", str((offset + out.queries_done) % len(self.cfg.scout.queries)))
+        total = len(self.cfg.scout.all_queries())
+        await self.storage.kv_set("scout_offset", str((offset + out.queries_done) % total))
+        rejected.update(dict.fromkeys(out.rejected, today.isoformat()))
+        await self.storage.kv_set("scout_rejected", json.dumps(rejected))
         new_links: set[str] = set()
 
         def merge(t: Table) -> tuple[int, int]:
-            new_links.update(r[T.LINK] for r in out.rows if t.find(r[T.LINK]) is None)
+            # В итог идут новые площадки и те, у которых живость измерена впервые.
+            for r in out.rows:
+                old = t.find(r[T.LINK])
+                if old is None or (r[T.MSGS_7D] and not old.get(T.MSGS_7D)):
+                    new_links.add(r[T.LINK])
             return t.merge(out.rows)
 
         (added, updated), warning = await self.repo.edit(
             merge, lambda r: f"scout: +{r[0]} новых, {r[1]} обновлено"
         )
         log.info("Разведка: +%d новых, %d обновлено, запросов %d", added, updated, out.queries_done)
-        return summary_text(out, added, updated, new_links, [warning] if warning else [])
+        log.info(
+            "Разведка: проверено %d, подходящих %d из %d, отсеяно %d",
+            out.checked, out.good, out.target, len(out.rejected),
+        )  # fmt: skip
+        return summary_text(
+            out, added, updated, new_links, [warning] if warning else [], self.cfg.scout.only_types
+        )
+
+    async def _scout_rejected(self, today: dt.date) -> dict[str, str]:
+        """Юзернеймы, которые разведка уже отсеяла (не ЖК, не Воронеж…), с датой. Через 30 дней — заново."""
+        try:
+            saved = json.loads(await self.storage.kv_get("scout_rejected", "{}"))
+        except ValueError:
+            return {}
+        fresh = {}
+        for name, day in saved.items() if isinstance(saved, dict) else ():
+            try:
+                if (today - dt.date.fromisoformat(day)).days <= STALE_DAYS:
+                    fresh[name] = day
+            except (TypeError, ValueError):
+                continue
+        return fresh
 
     async def _scout_schedule(self, hour: int, minute: int) -> None:
         while True:

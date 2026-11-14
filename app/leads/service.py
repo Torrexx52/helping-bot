@@ -20,6 +20,7 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
 from app.config import ConfigError, LeadsConfig, Settings, load_leads
+from app.leads import complexes as C
 from app.leads import table as T
 from app.leads.datarepo import DataRepo, DataRepoError
 from app.leads.monitor import Monitor, Watched, join_wait
@@ -352,6 +353,9 @@ class Leads:
         offset = int(await self.storage.kv_get("scout_offset", "0"))
         today = dt.datetime.now(self.tz).date()
         rejected = await self._scout_rejected(today)
+        # Собранный список ЖК (complexes/voronezh.csv): названия для запросов и готовые ссылки.
+        listed = await asyncio.to_thread(C.load_rows, self.repo.path / C.CSV_PATH)
+        names = C.search_names(listed)
         out = await run_scout(
             self.userbot,
             self.llm,
@@ -362,8 +366,10 @@ class Leads:
             max_chats=s.SCOUT_MAX_CHATS,
             offset=offset,
             rejected=set(rejected),
+            names=names,
+            seeds=C.seed_links(listed),
         )
-        total = len(self.cfg.scout.all_queries())
+        total = len(self.cfg.scout.all_queries(names))
         await self.storage.kv_set("scout_offset", str((offset + out.queries_done) % total))
         rejected.update(dict.fromkeys(out.rejected, today.isoformat()))
         await self.storage.kv_set("scout_rejected", json.dumps(rejected))

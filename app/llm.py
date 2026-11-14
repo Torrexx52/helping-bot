@@ -70,7 +70,7 @@ def parse_lead_answer(text: str) -> tuple[bool, str]:
 
 
 def _retryable(e: Exception) -> bool:
-    """Стоит ли пробовать запасную модель: таймаут, 429, 5xx или модели больше нет (404, 410).
+    """Стоит ли пробовать запасную модель: таймаут, 429, 5xx или модели больше нет (400, 404, 410).
 
     404 — так OpenRouter отвечает, когда убирает бесплатную версию модели.
     """
@@ -78,7 +78,7 @@ def _retryable(e: Exception) -> bool:
         return True
     if isinstance(e, httpx.HTTPStatusError):
         code = e.response.status_code
-        return code in (404, 408, 410, 429) or code >= 500
+        return code in (400, 404, 408, 410, 429) or code >= 500
     return False
 
 

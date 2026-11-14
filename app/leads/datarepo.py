@@ -145,6 +145,21 @@ class DataRepo:
             return "не удалось отправить изменения в репозиторий данных — сохранены локально"
         return None
 
+    async def put_file(self, rel_path: str, text: str, message: str) -> str | None:
+        """Записывает произвольный файл репозитория данных: свежая версия → файл → коммит → push."""
+        async with self.lock:
+            try:
+                warning = await self._pull()
+            except OSError as e:
+                raise DataRepoError(str(e)) from e
+            target = self.path / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8", newline="\n")
+            await self._git("add", "-A")
+            if await self._git("status", "--porcelain"):
+                await self._git("commit", "-q", "-m", message)
+            return warning or await self._push()
+
     # ---------- таблица ----------
 
     @property

@@ -27,6 +27,8 @@ MAX_FLOOD_WAIT = 600  # дольше не ждём: разведка закан�
 MAX_AI_GEO_CHECKS = 10  # сколько площадок без гео-слов за запуск показываем ИИ
 MAX_AI_FAILS = 3  # столько отказов ИИ подряд — до конца запуска его не спрашиваем
 RECHECK_PER_RUN = 40  # сколько старых строк без данных о живости перепроверяем за запуск
+SEEDS_PER_RUN = 40  # сколько готовых ссылок из списка ЖК проверяем за запуск
+SEED_QUERY = "список ЖК"
 NO_HISTORY = "история недоступна"
 JK_WORDS = ("жк", "жилой комплекс", "жилого комплекса", "жильц", "домовой чат", "чат дома")
 AD_RULES = ("разрешена", "запрещена", "платно", "через админа")
@@ -96,6 +98,7 @@ class ScoutOutcome:
     skipped_geo: int = 0  # Воронеж не подтверждён
     skipped_known: int = 0  # отсеяны в прошлых запусках
     checked: int = 0  # по скольким чатам запрошены сведения
+    seeds: int = 0  # из них — готовые ссылки из списка ЖК
     good: int = 0  # подходящих: не мёртвых и не клонов
     target: int = 0
     rejected: list[str] = field(default_factory=list)  # юзернеймы, которые не подошли
@@ -357,6 +360,8 @@ async def run_scout(
     max_chats: int = 250,
     offset: int = 0,
     rejected: frozenset[str] | set[str] = frozenset(),
+    names: list[str] | tuple[str, ...] = (),
+    seeds: list[str] | tuple[str, ...] = (),
     sleep: Sleep = asyncio.sleep,
 ) -> ScoutOutcome:
     """Один запуск разведки. Ничего не пишет — возвращает строки для слияния с таблицей.
@@ -364,9 +369,11 @@ async def run_scout(
     Идёт запрос за запросом: нашёл чаты — сразу проверил. Останавливается, когда набрано
     `cfg.target` подходящих площадок, кончились запросы на запуск или лимит проверок `max_chats`.
     `rejected` — юзернеймы, отсеянные в прошлых запусках: повторно на них запросы не тратятся.
+    `names` — названия из собранного списка ЖК (для запросов), `seeds` — готовые ссылки на чаты
+    оттуда же: они проверяются первыми, без поиска.
     """
     out = ScoutOutcome(target=cfg.target)
-    all_queries = cfg.all_queries()
+    all_queries = cfg.all_queries(names)
     n = len(all_queries)
     queries = [all_queries[(offset + i) % n] for i in range(min(queries_per_run, n))]
     strict = bool(cfg.only_types)
@@ -482,6 +489,18 @@ async def run_scout(
         seen.update(u.lower() for u in old)
         await run_batch([(u, "") for u in old[:RECHECK_PER_RUN]])
 
+    # Затем — ссылки на чаты, найденные вместе со списком ЖК (на Картах и сайтах).
+    ready: list[tuple[str, str]] = []
+    for link in map(normalize_link, seeds):
+        name = link_username(link).lower() if link else ""
+        if not name or name in seen or is_fresh(existing.find(link), today):
+            continue
+        seen.add(name)
+        ready.append((link_username(link), SEED_QUERY))
+    if ready and not state["stop"]:
+        out.seeds = min(len(ready), SEEDS_PER_RUN)
+        await run_batch(ready[:SEEDS_PER_RUN])
+
     for i, query in enumerate(queries):
         if state["stop"]:
             break
@@ -566,6 +585,7 @@ def summary_text(
         skipped += f" · отсеяны раньше: {out.skipped_known}"
     lines.append(
         f"Запросов: {out.queries_done} · площадок в поиске: {out.found} · свежих пропущено: {out.skipped_fresh}"
+        + (f" · ссылок из списка ЖК: {out.seeds}" if out.seeds else "")
         + (f"\nНе подошли{skipped}" if skipped else "")
     )
     if hidden:

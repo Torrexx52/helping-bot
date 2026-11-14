@@ -273,12 +273,16 @@ class ScoutConfig(BaseModel):
             raise ValueError("в каждом шаблоне complex_queries должно быть {name}")
         return v
 
-    def all_queries(self) -> list[str]:
-        """Общие запросы, затем каждый шаблон по всем ЖК: сначала «ЖК <имя>» для всех, потом следующий."""
+    def all_queries(self, extra: list[str] | tuple[str, ...] = ()) -> list[str]:
+        """Общие запросы, затем каждый шаблон по всем ЖК: сначала «ЖК <имя>» для всех, потом следующий.
+
+        `extra` — названия из собранного списка ЖК (лучшие первыми); идут перед `complexes`.
+        """
         out = list(self.queries)
         seen = {q.lower() for q in out}
+        names = list(dict.fromkeys([*extra, *self.complexes]))
         for template in self.complex_queries:
-            for name in self.complexes:
+            for name in names:
                 q = template.replace("{name}", name)
                 if q.lower() not in seen:
                     seen.add(q.lower())

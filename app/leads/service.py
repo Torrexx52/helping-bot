@@ -78,6 +78,8 @@ class Leads:
             settings.LLM_TIMEOUT,
             settings.LLM_DAILY_LIMIT,
             settings.TZ,
+            fallback_model=settings.LLM_FALLBACK_MODEL,
+            rpm=settings.LLM_RPM,
         )
         self.repo = DataRepo(
             settings.DATA_DIR / "leads-data",

@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""
     LLM_API_KEY: str = ""
     LLM_MODEL: str = ""
+    LLM_FALLBACK_MODEL: str = ""  # запасная: если основная ответила 429/5xx или таймаутом
+    LLM_RPM: int = Field(default=15, ge=0)  # запросов в минуту к основной модели, 0 — без очереди
     LLM_TIMEOUT: float = Field(default=20, gt=0)
     LLM_DAILY_LIMIT: int = Field(default=300, ge=0)
     LEADS_DATA_REPO: str = "torrexx52/helping-bot-data"
@@ -64,6 +66,7 @@ class Settings(BaseSettings):
     @field_validator(
         "LLM_TIMEOUT",
         "LLM_DAILY_LIMIT",
+        "LLM_RPM",
         "JOIN_PER_DAY",
         "SCOUT_QUERIES_PER_RUN",
         "SCOUT_MAX_CHATS",

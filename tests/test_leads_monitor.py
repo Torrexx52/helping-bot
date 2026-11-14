@@ -339,3 +339,69 @@ async def test_kv(storage):
     assert await storage.kv_get("llm:2026-11-13") == ""
     assert await storage.kv_get("llm:2026-11-14") == "2"
     assert await storage.kv_get("scout_last") == "t"
+
+
+# ---------- запасная модель и очередь к основной ----------
+
+
+def fallback_llm(storage: Storage, primary: object, seen: list, **kw) -> LLM:
+    def handler(request: httpx.Request) -> httpx.Response:
+        model = json.loads(request.content)["model"]
+        seen.append(model)
+        if model == "free":
+            if isinstance(primary, Exception):
+                raise primary
+            return httpx.Response(primary, text="error")
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"lead": true, "summary": "ок"}'}}]})
+
+    return LLM(
+        storage, "https://llm.test/v1", "k", "free", transport=httpx.MockTransport(handler), **kw
+    )
+
+
+@pytest.mark.parametrize("primary", [429, 500, 503, httpx.ReadTimeout("slow")])
+async def test_llm_fallback_model_on_429_5xx_timeout(storage, primary):
+    seen: list = []
+    llm = fallback_llm(storage, primary, seen, fallback_model="paid")
+    assert await llm.classify_lead("нужна газель") == (True, "ок")
+    assert seen == ["free", "paid"]
+    assert await llm.used_today() == 1  # в дневной лимит идёт один вызов
+    await llm.aclose()
+
+
+@pytest.mark.parametrize("primary", [401, 403])
+async def test_llm_no_fallback_on_auth_errors(storage, primary):
+    seen: list = []
+    llm = fallback_llm(storage, primary, seen, fallback_model="paid")
+    with pytest.raises(LLMUnavailable, match=str(primary)):
+        await llm.classify_lead("нужна газель")
+    assert seen == ["free"]
+    await llm.aclose()
+
+
+async def test_llm_without_fallback_model(storage):
+    seen: list = []
+    llm = fallback_llm(storage, 429, seen)
+    with pytest.raises(LLMUnavailable, match="429"):
+        await llm.classify_lead("нужна газель")
+    assert seen == ["free"]
+    await llm.aclose()
+
+
+async def test_llm_queue_15_per_minute(storage):
+    now = [100.0]
+    slept: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds
+
+    llm = make_llm(storage, '{"lead": false}')
+    llm._interval, llm._sleep, llm._clock = 60 / 15, sleep, lambda: now[0]
+    for _ in range(3):
+        await llm.classify_lead("x")
+    assert slept == [4.0, 4.0]  # первый сразу, дальше — раз в 4 секунды
+    now[0] += 60
+    await llm.classify_lead("x")
+    assert slept == [4.0, 4.0]  # после паузы ждать не нужно
+    await llm.aclose()

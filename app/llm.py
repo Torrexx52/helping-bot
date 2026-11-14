@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import logging
+import time
+from collections.abc import Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -61,6 +64,23 @@ def parse_lead_answer(text: str) -> tuple[bool, str]:
     return lead, summary
 
 
+def _retryable(e: Exception) -> bool:
+    """Стоит ли пробовать запасную модель: таймаут, 429 или 5xx."""
+    if isinstance(e, httpx.TimeoutException):
+        return True
+    if isinstance(e, httpx.HTTPStatusError):
+        return e.response.status_code == 429 or e.response.status_code >= 500
+    return False
+
+
+def _reason(e: Exception) -> str:
+    if isinstance(e, httpx.TimeoutException):
+        return "таймаут ИИ"
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"ИИ ответил HTTP {e.response.status_code}"
+    return f"ошибка ИИ: {type(e).__name__}"
+
+
 class LLM:
     def __init__(
         self,
@@ -72,15 +92,26 @@ class LLM:
         daily_limit: int = 300,
         tz: str = "Europe/Moscow",
         transport: httpx.AsyncBaseTransport | None = None,
+        fallback_model: str = "",
+        rpm: int = 0,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.storage = storage
         self.url = base_url.rstrip("/") + "/chat/completions" if base_url else ""
         self.api_key = api_key
         self.model = model
+        # Запасная модель: в неё уходит тот же запрос, если основная ответила 429/5xx или таймаутом.
+        self.fallback_model = fallback_model if fallback_model != model else ""
         self.daily_limit = daily_limit
         self.tz = ZoneInfo(tz)
-        self._json_mode = True
+        self._no_json_mode: set[str] = set()
         self._client = httpx.AsyncClient(timeout=timeout, transport=transport)
+        # Очередь к основной модели: не больше rpm запросов в минуту (0 — без ограничения).
+        self._interval = 60 / rpm if rpm > 0 else 0.0
+        self._next_at = 0.0
+        self._queue = asyncio.Lock()
+        self._sleep, self._clock = sleep, clock
 
     @property
     def configured(self) -> bool:
@@ -109,31 +140,44 @@ class LLM:
         key = self._key()
         await self.storage.kv_incr(key)
         await self.storage.kv_delete_prefix("llm:", keep=key)
-        payload: dict = {
-            "model": self.model,
-            "temperature": 0,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        }
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         try:
-            resp = await self._post(payload)
-            return resp.json()["choices"][0]["message"]["content"] or ""
-        except httpx.TimeoutException as e:
-            raise LLMUnavailable("таймаут ИИ") from e
-        except httpx.HTTPStatusError as e:
-            raise LLMUnavailable(f"ИИ ответил HTTP {e.response.status_code}") from e
+            await self._throttle()
+            try:
+                return await self._chat(self.model, messages)
+            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+                if not self.fallback_model or not _retryable(e):
+                    raise
+                log.info("ИИ: основная модель недоступна (%s) — запасная", _reason(e))
+                return await self._chat(self.fallback_model, messages)
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as e:
-            raise LLMUnavailable(f"ошибка ИИ: {type(e).__name__}") from e
+            raise LLMUnavailable(_reason(e)) from e
+
+    async def _throttle(self) -> None:
+        """Очередь к основной модели: запросы идут не чаще, чем раз в 60/rpm секунд."""
+        if not self._interval:
+            return
+        async with self._queue:
+            wait = self._next_at - self._clock()
+            if wait > 0:
+                await self._sleep(wait)
+            self._next_at = max(self._clock(), self._next_at) + self._interval
+
+    async def _chat(self, model: str, messages: list[dict]) -> str:
+        resp = await self._post({"model": model, "temperature": 0, "messages": messages})
+        return resp.json()["choices"][0]["message"]["content"] or ""
 
     async def _post(self, payload: dict) -> httpx.Response:
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        if self._json_mode:
+        model = payload["model"]
+        if model not in self._no_json_mode:
             resp = await self._client.post(
                 self.url, headers=headers, json={**payload, "response_format": {"type": "json_object"}}
             )
             if resp.status_code not in (400, 404, 422):
                 resp.raise_for_status()
                 return resp
-            self._json_mode = False  # провайдер не знает response_format — дальше без него
+            self._no_json_mode.add(model)  # модель не знает response_format — дальше без него
         resp = await self._client.post(self.url, headers=headers, json=payload)
         resp.raise_for_status()
         return resp

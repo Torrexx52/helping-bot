@@ -35,7 +35,7 @@
 
 Включить:
 1. В `/opt/helping-bot/.env` добавить `TG_API_ID`, `TG_API_HASH` (my.telegram.org, под аккаунтом юзербота)
-   и `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (см. `.env.example`). Без ключа ИИ заявки приходят
+   и `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, по желанию запасную `LLM_FALLBACK_MODEL` (см. `.env.example`). Без ключа ИИ заявки приходят
    с пометкой «без проверки».
 2. Публичную часть `data/ssh/leads-data.pub` добавить в приватный `helping-bot-data` →
    Settings → Deploy keys, **с правом записи**.

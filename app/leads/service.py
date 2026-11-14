@@ -26,6 +26,7 @@ from app.leads.scout import build_row, run_scout, summary_text
 from app.leads.table import Table, is_yes
 from app.leads.text import WordFilter, link_key, link_username, normalize_link
 from app.llm import LLM
+from app.render import split_text
 from app.storage import Storage
 from app.userbot import LOGIN_COMMAND, FloodWait, JoinManual, Userbot, UserbotError
 
@@ -331,7 +332,9 @@ class Leads:
             except Exception as e:  # noqa: BLE001
                 log.exception("Разведка не удалась")
                 text = f"❌ Разведка не удалась: {escape(type(e).__name__)}. Подробности в логах."
-            await self._send(text)
+            # Список всех новых площадок может не влезть в одно сообщение — режем по строкам.
+            for part in split_text(text):
+                await self._send(part)
 
     async def _scout(self) -> str:
         s = self.settings

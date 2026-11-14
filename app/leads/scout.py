@@ -63,6 +63,7 @@ class ScoutOutcome:
     found: int = 0
     skipped_fresh: int = 0
     skipped_offtopic: int = 0
+    skipped_discussion: int = 0
     warnings: list[str] = field(default_factory=list)
     llm_used: bool = False
 
@@ -262,6 +263,10 @@ async def run_scout(
         except UserbotError as e:
             log.info("Разведка: %s пропущен (%s)", chat.link, e)
             continue
+        if info.discussion:
+            # Чат комментариев канала: людей много, но говорят о постах канала, а не о быте.
+            out.skipped_discussion += 1
+            continue
         geo = has_word(f"{info.title} {info.about}", cfg.geo_words)
         if not geo:
             if ai_geo_checks >= MAX_AI_GEO_CHECKS:
@@ -282,26 +287,30 @@ async def run_scout(
 
 
 def summary_text(out: ScoutOutcome, added: int, updated: int, new_links: set[str], extra: list[str]) -> str:
-    """Итог владельцу: «найдено N новых, M обновлено» и до 10 лучших по числу участников."""
+    """Итог владельцу: «найдено N новых, M обновлено» и ВСЕ новые площадки (ЖК → районы → прочее)."""
     lines = [f"🔎 <b>Разведка</b>: найдено {added} новых, {updated} обновлено"]
+    skipped = ""
+    if out.skipped_offtopic:
+        skipped += f" · барахолки и т. п.: {out.skipped_offtopic}"
+    if out.skipped_discussion:
+        skipped += f" · чаты каналов: {out.skipped_discussion}"
     lines.append(
         f"Запросов: {out.queries_done} · площадок в поиске: {out.found} · свежих пропущено: {out.skipped_fresh}"
-        + (f" · не подошли (барахолки и т. п.): {out.skipped_offtopic}" if out.skipped_offtopic else "")
+        + (f"\nНе подошли{skipped}" if skipped else "")
     )
-    best = sorted(
+    new_rows = sorted(
         (r for r in out.rows if r[T.LINK] in new_links),
         key=lambda r: (TYPE_PRIORITY.get(r[T.TYPE], 2), -int(r[T.MEMBERS] or 0)),
-    )[:10]
-    if best:
-        lines.append("")
-        lines.append("<b>Лучшие новые</b>")
-        for i, r in enumerate(best, start=1):
-            members = f"{int(r[T.MEMBERS]):,}".replace(",", " ") if r[T.MEMBERS] else "?"
-            extra_note = f" · {escape(r[T.RULES])}" if r[T.RULES] else ""
-            lines.append(
-                f'{i}. <a href="{escape(r[T.LINK])}">{escape(r[T.NAME])}</a> — {members} · '
-                f"{escape(r[T.TYPE])}{extra_note}"
-            )
+    )
+    current_type = None
+    for i, r in enumerate(new_rows, start=1):
+        if r[T.TYPE] != current_type:
+            current_type = r[T.TYPE]
+            lines.append("")
+            lines.append(f"<b>{escape(current_type)}</b>")
+        members = f"{int(r[T.MEMBERS]):,}".replace(",", " ") if r[T.MEMBERS] else "?"
+        extra_note = f" · {escape(r[T.RULES])}" if r[T.RULES] else ""
+        lines.append(f'{i}. <a href="{escape(r[T.LINK])}">{escape(r[T.NAME])}</a> — {members}{extra_note}')
     for w in [*out.warnings, *extra]:
         lines.append(f"⚠️ {escape(w)}")
     return "\n".join(lines)

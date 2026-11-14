@@ -64,6 +64,7 @@ class ChatInfo(FoundChat):
     slowmode: int = 0
     join_request: bool = False
     linked: str = ""  # юзернейм чата обсуждения у канала
+    discussion: bool = False  # группа — чат обсуждения (комментарии) какого-то канала
 
 
 @dataclass
@@ -245,6 +246,7 @@ class Userbot:
             slowmode=fc.slowmode_seconds or 0,
             join_request=bool(getattr(chat, "join_request", False)),
             linked=linked,
+            discussion=base.kind == "group" and bool(fc.linked_chat_id),
         )
 
     # ---------- вступление ----------

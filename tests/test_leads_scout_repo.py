@@ -230,8 +230,9 @@ async def test_summary_text(storage):
     lines = summary_text(out, 11, 1, new, ["push не удался"]).splitlines()
     assert lines[0] == "🔎 <b>Разведка</b>: найдено 11 новых, 1 обновлено"
     top = [line for line in lines if line[:1].isdigit()]
-    assert len(top) == 10  # не больше 10 лучших, обновлённая c12 не в списке новых
-    assert top[0] == '1. <a href="https://t.me/c11_vrn">Воронеж &lt;11&gt;</a> — 11 000 · Другое ТГ'
+    assert len(top) == 11  # все новые, обновлённая c12 не в списке
+    assert "<b>Другое ТГ</b>" in lines
+    assert top[0] == '1. <a href="https://t.me/c11_vrn">Воронеж &lt;11&gt;</a> — 11 000'
     assert lines[-1] == "⚠️ push не удался"
 
 
@@ -425,9 +426,22 @@ async def test_scout_skips_flea_markets_and_ranks_residents_first(storage):
     assert out.skipped_offtopic == 2
     text = summary_text(out, len(out.rows), 0, {r[T.LINK] for r in out.rows}, [])
     assert text.index("ЖК Лазурный Воронеж") < text.index("Левый берег")
-    assert "не подошли" in text
+    assert "Не подошли" in text
 
 
 def test_guess_type_flea_title_wins_over_jk():
     assert guess_type(info("x", "ЖК Озерки барахолка")) == "Барахолка ТГ"
     assert guess_type(info("y", "Чат жильцов дома на Шишкова")) == "ЖК-группа ТГ"
+
+
+async def test_scout_skips_channel_discussion_chats_and_lists_all(storage):
+    chats = [info(f"jk_{i}_vrn", f"ЖК Лазурный Воронеж дом {i}", members=100 + i) for i in range(15)]
+    chats.append(info("news_talk", "Новости Воронежа — обсуждение", members=20000, discussion=True))
+    ub = FakeUserbot({"Воронеж ЖК": chats})
+    llm = llm_with(storage, None)
+    out = await run_scout(ub, llm, CFG, Table([]), today=TODAY, sleep=no_sleep)
+    await llm.aclose()
+    assert out.skipped_discussion == 1 and len(out.rows) == 15
+    assert "news_talk" not in ub.info_calls or all("news_talk" not in r[T.LINK] for r in out.rows)
+    text = summary_text(out, 15, 0, {r[T.LINK] for r in out.rows}, [])
+    assert "15. " in text and "чаты каналов: 1" in text

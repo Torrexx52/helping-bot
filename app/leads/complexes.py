@@ -55,23 +55,27 @@ COLUMNS = [
 # «ЖК "Озерки" поз. 34», «Клубный дом "Академический"», «Жилой комплекс «Лазурный» 2 очередь».
 _PREFIX = re.compile(
     r"^(?:жк|ж\.к\.|жилой комплекс|жилой квартал|жилой район|жилой дом|клубный дом|клубный квартал|"
-    r"дом|мкр\.?|микрорайон|квартал|комплекс апартаментов|апарт-комплекс|гк|кп)\s+",
+    r"дом|мкр\.?|микрорайон|квартал|комплекс апартаментов|апарт-комплекс|гк|кп)[\s)]+",
     re.I,
 )
+_UNIT = r"(?:поз|позиция|очередь|оч|этап|корпус|корп|литер|секция|блок|дом|строение|гп|уч|участок)"
+# «… поз. 34», «… (поз. 5, 6)», «… 2 очередь», «…, дом 12» — хвост с номером дома или очереди.
 _SUFFIX = re.compile(
-    r"[\s,.(-]*(?:(?:\d+\s*(?:-?\s*[а-я]+)?\s+)?(?:поз|позиция|очередь|оч|этап|корпус|корп|литер|"
-    r"секция|блок|дом|строение|квартал|гп|уч|участок)\b\.?\s*[№#]?\s*[\dа-яa-z/.,\s-]*)+\)?$",
+    rf"[\s,.(-]*(?:\d+\s*-?\s*(?:я|й|ая|ый)?\s+)?(?<![а-яёa-z]){_UNIT}(?![а-яёa-z])[\s.№#\dа-яёa-z/,-]*\)?$",
     re.I,
 )
 _QUOTED = re.compile(r"[«\"“„']\s*([^«»\"“”„']{2,})")
-# Названия-адреса и безымянные дома: в поиске Telegram по ним ничего осмысленного не найти.
+# Названия-адреса, безымянные дома и не-жильё: в поиске Telegram по ним ничего осмысленного не найти.
 _ADDRESS_LIKE = re.compile(
-    r"^(?:по\s|на\s|ул\b|улиц|пер\b|переул|пр-т|просп|бульв|дом\s*(?:по|на|№)|жилой дом|многоквартирн|"
-    r"\d+[\s-]*(?:этажн|кварт)|жилой комплекс\s*\d)|\bул\.|\bд\.\s*\d",
+    r"^(?:по\s|на\s|ул\b|улиц|пер\b|переул|пр-т|просп|бульв|дом\s|жилой дом|жилые дома|многоквартирн|"
+    r"группа домов|гаражн|деловой центр|жилой$|жк по\s|жк на\s|жилой комплекс\s*(?:\d|по\s)|г\.\s*воронеж|"
+    r"\d+[\s-]*(?:этажн|кварт))"
+    r"|\bул\.|\bд\.\s*\d|\bгск\b|,\s*\d|(?<!квартал)\s\d{2,3}\s?[а-яё]?$",
     re.I,
 )
 _TME = re.compile(r"(?:https?://)?(?:t|telegram)\.me/(?:s/)?(\+?[A-Za-z0-9_-]{4,})", re.I)
 _SOCIAL = re.compile(r"https?://(?:vk\.com|vk\.ru|ok\.ru)/[A-Za-z0-9_.\-/]+", re.I)
+_JUNK = " \"'«»“”„.,;:-()"
 
 
 def clean_name(raw: str | None) -> str:
@@ -82,14 +86,18 @@ def clean_name(raw: str | None) -> str:
     quoted = _QUOTED.search(text)
     if quoted:
         text = quoted.group(1)
-    text = text.strip(" \"'«»“”„.,;:-")
-    junk = " \"'«»“”„.,;:-("
+    text = text.strip(_JUNK)
+    # «ПОКОЛЕНИЕ, ЖК ПОКОЛЕНИЕ», «БОРОВОЕ ЖК БОРОВОЕ», «Бабяково. Новый квартал; Бабяково. Зеленый».
+    text = re.split(r"\s*;\s*|,\s*жк\s|\sжк\s", text, maxsplit=1, flags=re.I)[0].strip(_JUNK) or text
     for _ in range(2):
         # «Квартал 45», «Дом на набережной»: слово-приставка здесь — часть названия.
-        rest = _PREFIX.sub("", text).strip(junk)
+        rest = _PREFIX.sub("", text).strip(_JUNK)
         if rest and not rest[0].isdigit() and not re.match(r"(?:на|у|в|по)\s", rest, re.I):
             text = rest
-    text = _SUFFIX.sub("", text).strip(junk) or text
+    text = _SUFFIX.sub("", text).strip(_JUNK) or text
+    text = re.sub(r"\s*-\s*", "-", text)  # «Суворов- Сити»
+    if text.isupper() and len(text) > 4 and not re.search(r"\d", text):
+        text = text.title()  # «САБУРОВ РЕЗИДЕНС»
     return text if len(text) >= 2 and not text.isdigit() else ""
 
 
@@ -109,8 +117,8 @@ def distance_km(lat: float, lon: float, origin: tuple[float, float] = CENTER) ->
 
 def locality(address: str) -> str:
     """«Город Воронеж, Улица Острогожская» → «Воронеж»; «…, Село Новая Усмань, …» → «Новая Усмань»."""
-    kinds = r"город|г\.?|село|с\.?|пос[её]лок|п\.?|пгт|рабочий пос[её]лок|рп|деревня|д\.?|хутор|слобода"
-    found = re.findall(rf"(?:^|,\s*)(?:{kinds})\s+([А-ЯЁ][^,]+)", address or "", re.I)
+    kinds = r"город|г\.|село|с\.|рабочий пос[её]лок|пос[её]лок|п\.|пгт|рп|деревня|хутор|слобода"
+    found = re.findall(rf"(?:^|,\s*)(?i:{kinds})\s+([А-ЯЁ][^,]+)", address or "")
     return found[-1].strip() if found else ""
 
 
@@ -200,6 +208,30 @@ def add_domrf(complexes: dict[str, Complex], objects: list[dict]) -> int:
     return unnamed
 
 
+def merge_phases(complexes: dict[str, Complex]) -> int:
+    """«Галактика 2», «Галактика 3» → «Галактика», если такой ЖК есть. Возвращает число слияний."""
+    merged = 0
+    for key in sorted(complexes, key=len, reverse=True):
+        m = re.fullmatch(r"(.{4,}?)\d", key)
+        base = complexes.get(m.group(1)) if m else None
+        if base is None:
+            continue
+        part = complexes.pop(key)
+        base.flats += part.flats
+        base.houses += part.houses
+        base.ready += part.ready
+        base.built += part.built
+        base.developers |= part.developers
+        base.addresses += part.addresses
+        base.coords += part.coords
+        base.ratings = max(base.ratings, part.ratings)
+        base.sites += [u for u in part.sites if u not in base.sites]
+        base.links += [u for u in part.links if u not in base.links]
+        base.sources |= part.sources
+        merged += 1
+    return merged
+
+
 def add_yandex(complexes: dict[str, Complex], items: list[dict], near_m: float = 250) -> tuple[int, int]:
     """Организации категории «Жилой комплекс» с Карт. Возвращает (совпало с реестром, добавлено новых)."""
     matched = added = 0
@@ -211,6 +243,8 @@ def add_yandex(complexes: dict[str, Complex], items: list[dict], near_m: float =
         if not name:
             continue
         lon, lat = (it.get("c") or [None, None])[:2]
+        if lat and lon and distance_km(lat, lon) > 300:
+            continue  # по слову «Борисоглебск» Карты приносят и подмосковное «Борисоглебское»
         c = complexes.get(name_key(name))
         if c is None and lat and lon and not searchable(name):
             # «По ул. Одесская» — это может быть дом уже известного ЖК: ищем ближайший из реестра.
@@ -446,11 +480,13 @@ async def collect(yandex_file: Path | None, today: dt.date, crawl: bool = True) 
     async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=40) as client:
         objects = await fetch_domrf(client)
         unnamed = add_domrf(complexes, objects)
+        merge_phases(complexes)
         from_registry = len(complexes)
         matched = added = 0
         items = await asyncio.to_thread(load_yandex, yandex_file)
         if items:
             matched, added = add_yandex(complexes, items)
+        merge_phases(complexes)
         sites = await crawl_sites(client, complexes) if crawl else 0
     rows = build_rows(complexes, today)
     grades = {g: sum(r[GRADE] == g for r in rows) for g in "ABCD"}
